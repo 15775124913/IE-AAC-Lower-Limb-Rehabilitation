@@ -1,0 +1,4 @@
+Joint,B0_Nm,Kq_NmPerRad,Kv_NmSecondsPerRad,Ke_Nm
+Hip,0.6,2.5,1.5,55
+Knee,0.45,1.8,1.1,40
+Ankle,0.25,1.1,0.65,25

@@ -1,0 +1,3 @@
+ManuscriptSection,SourceFile,PaperSource,DataType,SampleScope,EvidenceScope
+Section 5.3.1,results\20261031_131134\stability_validation\stability_frozen_parameter_boxes.csv,results\20261031_131134\figure_data\Section5_3_1_stability_frozen_box_source.csv,Analytical frozen-parameter box,"Hip/Knee/Ankle parameter box, no input, inactive supervisor","Each fixed parameter pair within the box is Schur stable"
+Section 5.3.1,results\20261031_131134\stability_validation\stability_nominal_trajectory_summary.csv,results\20261031_131134\figure_data\Section5_3_1_stability_nominal_source.csv,Observed nominal Proposed trajectory,"14,000 transitions; sampled switched B/K/G; not a stability proof","Parameter bounds, pointwise frozen Jury, motion and recurrence audit only"

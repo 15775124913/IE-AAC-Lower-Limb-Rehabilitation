@@ -1,0 +1,12 @@
+R3-C5 / R2-P10 STABILITY EVIDENCE (MATLAB R2024b expected)
+Frozen parameter box Jury checks passed: 1
+Observed nominal trajectory present: 1
+Observed nominal time steps: 14000
+Observed supervisor correction count (threshold 1e-8 rad/s^2): 298
+Projection bounds: 0.1*Ba0..4*Ba0, 0.01*Ka0..5*Ka0, 0.08*Ga0..2.5*Ga0.
+Semi-implicit Euler: v_next=v+h*a_next; q_next=q+h*v_next.
+Jury: r=h*B/M>0; s=h^2*K/M>0; 4-2*r-s>0.
+PROVEN: each fixed positive B/K pair within the listed projection box is Schur stable for zero input and an INACTIVE supervisor.
+OBSERVED ONLY: parameter-box membership, sampled Jury margins, bounded sampled motion, state recurrence and supervisor intervention counts.
+NOT PROVEN: arbitrary switched/adaptive closed-loop stability, complete ISS, recursive feasibility, virtual/physical port passivity or patient safety.
+An imposed input and the nonlinear supervisor invalidate identification of the running trajectory with the unforced frozen homogeneous system.

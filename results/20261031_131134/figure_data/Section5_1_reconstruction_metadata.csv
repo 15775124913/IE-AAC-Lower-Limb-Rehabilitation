@@ -1,0 +1,2 @@
+ManuscriptItem,SourceCSV,SampleScope,ReferenceDefinition,ToleranceDefinition
+Section 5.1,results\20261031_131134\teaching_reconstruction_quality_20261031_131134.csv,1001 first-cycle time samples for each of three joints,PCHIP teaching proxy for fitting; latent truth is offline only,"1 degree tolerance applies to pooled fitting RMSE, not maximum error"

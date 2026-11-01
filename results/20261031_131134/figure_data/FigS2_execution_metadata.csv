@@ -1,0 +1,2 @@
+WorstCase,ValidationScope,SignalDefinition
+50 ms; inertia coupling 0.20,Simulation only,Joint angular position is the realized execution state

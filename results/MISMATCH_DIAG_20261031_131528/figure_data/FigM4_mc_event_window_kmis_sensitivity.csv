@@ -1,0 +1,46 @@
+Metric,Joint,K_mis,Mean,N
+Event-Window Tracking RMSE,Hip,0,0.797416849673867,100
+Event-Window Tracking RMSE,Hip,0.25,0.731090292325592,100
+Event-Window Tracking RMSE,Hip,0.5,0.669190230435606,100
+Event-Window Tracking RMSE,Hip,0.75,0.613110277938471,100
+Event-Window Tracking RMSE,Hip,1,0.563216114561498,100
+Event-Window Tracking RMSE,Knee,0,1.68856118632657,100
+Event-Window Tracking RMSE,Knee,0.25,1.83940048629678,100
+Event-Window Tracking RMSE,Knee,0.5,2.0166312614425,100
+Event-Window Tracking RMSE,Knee,0.75,2.22594593101505,100
+Event-Window Tracking RMSE,Knee,1,2.47366058993697,100
+Event-Window Tracking RMSE,Ankle,0,3.09389360272753,100
+Event-Window Tracking RMSE,Ankle,0.25,3.42557111238348,100
+Event-Window Tracking RMSE,Ankle,0.5,3.85439399455023,100
+Event-Window Tracking RMSE,Ankle,0.75,2.95694175945988,100
+Event-Window Tracking RMSE,Ankle,1,1.95003883031166,100
+Event-Window Jerk RMS,Hip,0,94.1773615930208,100
+Event-Window Jerk RMS,Hip,0.25,97.0859137176129,100
+Event-Window Jerk RMS,Hip,0.5,99.6352919765003,100
+Event-Window Jerk RMS,Hip,0.75,101.760496398404,100
+Event-Window Jerk RMS,Hip,1,103.431327784126,100
+Event-Window Jerk RMS,Knee,0,97.6791376675594,100
+Event-Window Jerk RMS,Knee,0.25,97.715852792152,100
+Event-Window Jerk RMS,Knee,0.5,97.6713416758373,100
+Event-Window Jerk RMS,Knee,0.75,97.6000904662686,100
+Event-Window Jerk RMS,Knee,1,97.6541288121187,100
+Event-Window Jerk RMS,Ankle,0,143.981982370556,100
+Event-Window Jerk RMS,Ankle,0.25,197.528683306527,100
+Event-Window Jerk RMS,Ankle,0.5,133.211683619815,100
+Event-Window Jerk RMS,Ankle,0.75,205.407788709989,100
+Event-Window Jerk RMS,Ankle,1,174.748864575474,100
+Event-Window Raw Residual RMS,Hip,0,0.50663472499596,100
+Event-Window Raw Residual RMS,Hip,0.25,0.491422950528114,100
+Event-Window Raw Residual RMS,Hip,0.5,0.477578186779188,100
+Event-Window Raw Residual RMS,Hip,0.75,0.465303799922501,100
+Event-Window Raw Residual RMS,Hip,1,0.45455947841616,100
+Event-Window Raw Residual RMS,Knee,0,0.715696250576667,100
+Event-Window Raw Residual RMS,Knee,0.25,0.67858486446273,100
+Event-Window Raw Residual RMS,Knee,0.5,0.636241224187436,100
+Event-Window Raw Residual RMS,Knee,0.75,0.588390303359096,100
+Event-Window Raw Residual RMS,Knee,1,0.535797032827631,100
+Event-Window Raw Residual RMS,Ankle,0,2.21480755342226,100
+Event-Window Raw Residual RMS,Ankle,0.25,2.44462660799554,100
+Event-Window Raw Residual RMS,Ankle,0.5,2.73620638731192,100
+Event-Window Raw Residual RMS,Ankle,0.75,2.1533571301326,100
+Event-Window Raw Residual RMS,Ankle,1,1.55410727327204,100

@@ -1,0 +1,7 @@
+Field,Index,Value
+event_centers,1,72.4
+event_centers,2,73.8
+event_centers,3,75.2
+event_sigma,1,0.25
+event_sigma,2,0.28
+event_sigma,3,0.3

@@ -1,0 +1,14 @@
+Experiment,Status,RelativeFolder,KeyEvidence
+Reconstruction quality (R3 C6),FOLDER_PRESENT,results\20261031_131134\figure_data,Section5_1_reconstruction_*_source.csv and metadata
+Primary Monte Carlo,FOLDER_PRESENT,results\MC_20261031_131143,MC_trial_level_four_controller_*.csv
+Nominal results,FOLDER_PRESENT,results\20261031_131134,nominal MAT/CSV + Fig05-Fig11
+Core ablation,FOLDER_PRESENT,results\ABLATION_20261031_131401,ablation_mc_trial_metrics_long.csv
+K_mis sensitivity,FOLDER_PRESENT,results\MISMATCH_DIAG_20261031_131528,mismatch_mc_sensitivity_compact.csv
+Final ablation evidence,FOLDER_PRESENT,results\FINAL_ABLATION_EVIDENCE_20261031_131719,TableA-F evidence tables
+Execution six-case,FOLDER_PRESENT,results\20261031_131134\execution_dynamics,execution_dynamics_results.csv
+True-estimated model mismatch,FOLDER_PRESENT,results\MODEL_MISMATCH_20261031_131757,model_mismatch_group_summary.csv
+Joint-specific nominal study,FOLDER_PRESENT,results\JOINT_SPECIFIC_20261031_132144,joint_specific_group_summary.csv
+Conditional discrete stability audit,FOLDER_PRESENT,results\20261031_131134\stability_validation,stability_frozen_parameter_boxes.csv; figure_data/Section5_3_1_stability_*
+Paper figures,FOLDER_PRESENT,results\20261031_131134\paper_figures,Fig16 PDF/PNG
+Paper figure data,FOLDER_PRESENT,results\20261031_131134\figure_data,Fig16/Table6/Table7 and Section5_1 CSV/MAT/metadata
+Soft-dead-zone and noise sensitivity (R2 P11),COMPLETE,results\20261031_131134\figure_data,FigS3 PDF/PNG; P11 trial/summary/paired/metadata CSV and MAT

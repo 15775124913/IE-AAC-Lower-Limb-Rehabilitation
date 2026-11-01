@@ -1,0 +1,61 @@
+Metric,Joint,K_mis,Mean,N
+"Mismatch Leakage RMS",Hip,0,0.324912744476714,100
+"Mismatch Leakage RMS",Hip,0.25,0.241811408142885,100
+"Mismatch Leakage RMS",Hip,0.5,0.157306170434251,100
+"Mismatch Leakage RMS",Hip,0.75,0.0757023821481414,100
+"Mismatch Leakage RMS",Hip,1,1.04835703674699e-15,100
+"Mismatch Leakage RMS",Knee,0,0.343738681207177,100
+"Mismatch Leakage RMS",Knee,0.25,0.278240114189361,100
+"Mismatch Leakage RMS",Knee,0.5,0.202226975570027,100
+"Mismatch Leakage RMS",Knee,0.75,0.111950656623961,100
+"Mismatch Leakage RMS",Knee,1,5.61629147248459e-16,100
+"Mismatch Leakage RMS",Ankle,0,1.26853078953728,100
+"Mismatch Leakage RMS",Ankle,0.25,1.05128778990108,100
+"Mismatch Leakage RMS",Ankle,0.5,0.666558262275506,100
+"Mismatch Leakage RMS",Ankle,0.75,0.145643313054896,100
+"Mismatch Leakage RMS",Ankle,1,2.02762524876978e-16,100
+"Processed Controller-Input RMS",Hip,0,0.830944389025587,100
+"Processed Controller-Input RMS",Hip,0.25,0.759281831300982,100
+"Processed Controller-Input RMS",Hip,0.5,0.684646801924899,100
+"Processed Controller-Input RMS",Hip,0.75,0.610138104129544,100
+"Processed Controller-Input RMS",Hip,1,0.538998772740225,100
+"Processed Controller-Input RMS",Knee,0,0.566009843801518,100
+"Processed Controller-Input RMS",Knee,0.25,0.619889468934434,100
+"Processed Controller-Input RMS",Knee,0.5,0.684825346209832,100
+"Processed Controller-Input RMS",Knee,0.75,0.76427471857359,100
+"Processed Controller-Input RMS",Knee,1,0.864824469953154,100
+"Processed Controller-Input RMS",Ankle,0,1.39872899116375,100
+"Processed Controller-Input RMS",Ankle,0.25,1.18271363882284,100
+"Processed Controller-Input RMS",Ankle,0.5,0.801953624306481,100
+"Processed Controller-Input RMS",Ankle,0.75,0.297939320924546,100
+"Processed Controller-Input RMS",Ankle,1,0.170304386094555,100
+"Corr(Mismatch, Pathological)",Hip,0,0.68314270554311,100
+"Corr(Mismatch, Pathological)",Hip,0.25,0.750942999644014,100
+"Corr(Mismatch, Pathological)",Hip,0.5,0.813132009559505,100
+"Corr(Mismatch, Pathological)",Hip,0.75,0.860150096518248,100
+"Corr(Mismatch, Pathological)",Hip,1,0.891980073404265,100
+"Corr(Mismatch, Pathological)",Knee,0,-0.863510521970805,100
+"Corr(Mismatch, Pathological)",Knee,0.25,-0.859713349223223,100
+"Corr(Mismatch, Pathological)",Knee,0.5,-0.856377562252873,100
+"Corr(Mismatch, Pathological)",Knee,0.75,-0.851897863219983,100
+"Corr(Mismatch, Pathological)",Knee,1,-0.844951099250782,100
+"Corr(Mismatch, Pathological)",Ankle,0,0.309723231490579,100
+"Corr(Mismatch, Pathological)",Ankle,0.25,0.3648612319227,100
+"Corr(Mismatch, Pathological)",Ankle,0.5,0.460830770735239,100
+"Corr(Mismatch, Pathological)",Ankle,0.75,0.589528858491603,100
+"Corr(Mismatch, Pathological)",Ankle,1,0.568834814176241,100
+"Raw-Residual Cancellation Ratio",Hip,0,0.965196135009905,100
+"Raw-Residual Cancellation Ratio",Hip,0.25,0.972358843303643,100
+"Raw-Residual Cancellation Ratio",Hip,0.5,0.979125259897633,100
+"Raw-Residual Cancellation Ratio",Hip,0.75,0.984210060506141,100
+"Raw-Residual Cancellation Ratio",Hip,1,0.987589952483799,100
+"Raw-Residual Cancellation Ratio",Knee,0,0.480593302523108,100
+"Raw-Residual Cancellation Ratio",Knee,0.25,0.452183991107123,100
+"Raw-Residual Cancellation Ratio",Knee,0.5,0.419626183402828,100
+"Raw-Residual Cancellation Ratio",Knee,0.75,0.381585331125134,100
+"Raw-Residual Cancellation Ratio",Knee,1,0.338125891983278,100
+"Raw-Residual Cancellation Ratio",Ankle,0,0.968607715864975,100
+"Raw-Residual Cancellation Ratio",Ankle,0.25,0.970294689576795,100
+"Raw-Residual Cancellation Ratio",Ankle,0.5,0.968505123601803,100
+"Raw-Residual Cancellation Ratio",Ankle,0.75,0.950513993560536,100
+"Raw-Residual Cancellation Ratio",Ankle,1,0.931995497328597,100
