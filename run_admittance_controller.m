@@ -49,6 +49,7 @@ function [delta_q, delta_dq, delta_ddq, Ba_fixed, Ka_fixed, Ga_fixed, ...
     if isscalar(jerk_limit), jerk_limit = repmat(jerk_limit, 1, 3); end
     K_mis = params.K_mismatch_comp;
     if isscalar(K_mis), K_mis = repmat(K_mis, 1, 3); end
+    patient_truth = model_mismatch_utils('resolve', params);
 
     % 关节极限（与自适应导纳保持一致）
     q1_max = params.q1_max; q2_max = params.q2_max;
@@ -63,9 +64,18 @@ function [delta_q, delta_dq, delta_ddq, Ba_fixed, Ka_fixed, Ga_fixed, ...
     e_fb_used_all   = zeros(N, 3);
     e_fb_raw_all    = zeros(N, 3);
 
-    % ================= 六分量交互力矩诊断（仅记录，不参与控制） =================
-    % raw = mismatch + spasm + synergy + fatigue + event + noise
+    % ================= 真实/估计模型分离与交互分解诊断（只记录） =================
+    % raw = true motion mismatch + reference-model bias + pathology.
+    % The extra bias is zero for the frozen exact-model experiments.
     interaction_diag = init_interaction_diag_fixed_controller_core(N);
+
+    % Optional coupled execution dynamics, OFF by default to preserve all
+    % previously reported command-level simulations and results.
+    use_execution = isfield(params,'execution_dynamics') && ...
+        isfield(params.execution_dynamics,'enabled') && params.execution_dynamics.enabled;
+    if use_execution
+        plant = execution_dynamics_step('init', [], params, q_ref, dq_ref);
+    end
 
     % 固定参数序列（全时段保持常量）
     Ba_fixed = repmat(Ba0(:)', N, 1);
@@ -74,7 +84,14 @@ function [delta_q, delta_dq, delta_ddq, Ba_fixed, Ka_fixed, Ga_fixed, ...
 
     %% ================= 主循环 =================
     for i = 1:N-1
-        i_prev = max(i-1, 1);   % 上一步索引（用于命令加速度估计）
+
+        if use_execution
+            q_interaction = plant.q(i,:);
+            dq_interaction = plant.dq(i,:);
+        else
+            q_interaction = q_ref(i,:) + delta_q(i,:);
+            dq_interaction = dq_ref(i,:) + delta_dq(i,:);
+        end
         for j = 1:3
             % ---- 当前命令轨迹（标量） ----
             q_cmd_cur  = q_ref(i,j) + delta_q(i,j);
@@ -93,14 +110,28 @@ function [delta_q, delta_dq, delta_ddq, Ba_fixed, Ka_fixed, Ga_fixed, ...
             % ② 命令基线（实际命令状态下的正常阻抗）
             phi_cmd_j = min((abs(q_cmd_cur) / q_max(j))^2, 1.0);
             fb_nominal_cmd = B0 + Kq*abs(q_cmd_cur) + Kv*abs(dq_cmd_cur) + Ke*phi_cmd_j;
+            % Separate predicted command-state baseline from physical executed-state baseline.
+            phi_exec_j = min((abs(q_interaction(j))/q_max(j))^2,1.0);
+            % The simulated patient/plant has independent nominal parameters.
+            % When params.patient_nominal_truth is absent, these resolve to
+            % B0/Kq/Kv/Ke above, preserving the frozen legacy study.
+            B0_true = patient_truth.B0(j);
+            Kq_true = patient_truth.Kq_fb(j);
+            Kv_true = patient_truth.Kv_fb(j);
+            Ke_true = patient_truth.Ke_fb(j);
+            fb_nominal_true_ref = B0_true + Kq_true*abs(q_ref(i,j)) + ...
+                Kv_true*abs(dq_ref(i,j)) + Ke_true*phi_ref_j;
+            fb_nominal_exec = B0_true + Kq_true*abs(q_interaction(j)) + ...
+                Kv_true*abs(dq_interaction(j)) + Ke_true*phi_exec_j;
+            reference_model_bias = fb_nominal_true_ref - fb_nominal_ref;
 
             % ③ 痉挛：门控使用实际命令角度(平滑sigmoid)，强度使用参考速度(避免正反馈)
             gate_st = params.spasm_gate_steepness;
             if j == 1  % 髋
-                gate = 1 ./ (1 + exp(-gate_st * max(min(q_cmd_cur - params.spasm_q_hip_th, 5), -5)));
+                gate = 1 ./ (1 + exp(-gate_st * max(min(q_interaction(j) - params.spasm_q_hip_th, 5), -5)));
                 spasm = (params.spasm_c1/100) * abs(dq_ref(i,j)) * gate;
             elseif j == 2  % 膝（耦合项改用髋参考速度）
-                gate = 1 ./ (1 + exp(gate_st * max(min(q_cmd_cur + params.spasm_q_knee_th, 5), -5)));
+                gate = 1 ./ (1 + exp(gate_st * max(min(q_interaction(j) + params.spasm_q_knee_th, 5), -5)));
                 spasm = (params.spasm_c2/100) * abs(dq_ref(i,j) + 0.15*dq_ref(i,1)) * gate;
             else  % 踝（耦合项改用膝参考速度）
                 spasm = params.spasm_c3 * abs(dq_ref(i,j) + 0.20*dq_ref(i,2));
@@ -108,11 +139,11 @@ function [delta_q, delta_dq, delta_ddq, Ba_fixed, Ka_fixed, Ga_fixed, ...
 
             % ④ 协同（其他关节使用命令状态 q_cmd = q_ref + delta_q，单步延迟耦合）
             if j == 1
-                synergy = params.Csyn(1) * abs(q_ref(i,2) + delta_q(i,2));
+                synergy = params.Csyn(1) * abs(q_interaction(2));
             elseif j == 2
-                synergy = params.Csyn(2) * abs(q_ref(i,1) + delta_q(i,1));
+                synergy = params.Csyn(2) * abs(q_interaction(1));
             else
-                synergy = params.Csyn(3) * abs(q_ref(i,2) + delta_q(i,2));
+                synergy = params.Csyn(3) * abs(q_interaction(2));
             end
 
             % 疲劳、事件、噪声（预生成）
@@ -121,19 +152,23 @@ function [delta_q, delta_dq, delta_ddq, Ba_fixed, Ka_fixed, Ga_fixed, ...
             noise   = pre_fb.noise_all(i,j);
 
             % 真实反馈
-            fb_true = fb_nominal_cmd + spasm + synergy + fatigue + event + noise;
+            fb_true = fb_nominal_exec + spasm + synergy + fatigue + event + noise;
 
             % ⑤ 原始误差：相对“参考基线”，显式包含阻抗失配项
             e_fb_raw = fb_true - fb_nominal_ref;
 
             % ⑥ 阻抗失配前馈补偿（防止 Kv*Δdq 自激正反馈）
-            mismatch = fb_nominal_cmd - fb_nominal_ref;
-
-            e_fb_comp = e_fb_raw - K_mis(j) * mismatch;
+            mismatch = fb_nominal_exec - fb_nominal_true_ref;
+            mismatch_pred = fb_nominal_cmd - fb_nominal_ref;
+            e_fb_comp = e_fb_raw - K_mis(j) * mismatch_pred;
 
             % ---- 六分量诊断记录：此处只记录，不改变闭环计算 ----
             pathological = spasm + synergy + fatigue + event + noise;
             interaction_diag.mismatch(i,j) = mismatch;
+            interaction_diag.reference_model_bias(i,j) = reference_model_bias;
+            interaction_diag.fb_nominal_true_ref(i,j) = fb_nominal_true_ref;
+            interaction_diag.fb_nominal_true_exec(i,j) = fb_nominal_exec;
+            interaction_diag.predicted_mismatch(i,j) = mismatch_pred;
             interaction_diag.spasm(i,j) = spasm;
             interaction_diag.synergy(i,j) = synergy;
             interaction_diag.fatigue(i,j) = fatigue;
@@ -158,7 +193,7 @@ function [delta_q, delta_dq, delta_ddq, Ba_fixed, Ka_fixed, Ga_fixed, ...
                     ddq_ref_i = (dq_ref(i+1,j) - dq_ref(i-1,j)) / (2*dt);
                 end
             end
-            ddq_cmd_est = ddq_ref_i + delta_ddq(i_prev, j);
+            ddq_cmd_est = ddq_ref_i + delta_ddq(i, j);
 
             % ⑧ 死区 + 静止区处理（判定使用命令状态与命令加速度）
             [e_fb_use, quiet_flag] = apply_deadzone_and_quietzone(e_fb_comp, q_cmd_cur, dq_cmd_cur, ...
@@ -181,45 +216,46 @@ function [delta_q, delta_dq, delta_ddq, Ba_fixed, Ka_fixed, Ga_fixed, ...
             Ka_tmp = min(max(Ka_tmp, 0.01*Ka0(j)), 5.0*Ka0(j));
             Ga_tmp = min(max(Ga_tmp, 0.08*Ga0(j)), 2.5*Ga0(j));
 
-            % ---- 固定导纳方程（后向欧拉） ----
+            % ---- 导纳期望加速度：由共同的半隐式约束积分器执行 ----
             delta_ddq_tmp = (Ga_tmp * e_fb_use ...
                            - Ba_tmp * delta_dq(i,j) ...
                            - Ka_tmp * delta_q(i,j)) / Ma0(j);
-            % 加速度限幅
-            delta_ddq_tmp = max(min(delta_ddq_tmp, delta_ddq_limit(j)), -delta_ddq_limit(j));
-
-            % ★ 急动度限幅：限制每步加速度变化率，消除速度/加速度尖峰
-            if i > 1
-                ddq_prev = delta_ddq(i-1, j);
-            else
-                ddq_prev = 0;
-            end
-            max_step = jerk_limit(j) * dt;
-            delta_ddq_tmp = max(min(delta_ddq_tmp, ddq_prev + max_step), ddq_prev - max_step);
-            delta_ddq(i,j) = delta_ddq_tmp;
-
-            % ---- 积分与限幅 ----
-            dq_pred = delta_dq(i,j) + delta_ddq_tmp * dt;
-            dq_pred = max(min(dq_pred, delta_dq_limit(j)), -delta_dq_limit(j));
-
-            q_pred = delta_q(i,j) + dq_pred * dt;
-            q_pred = max(min(q_pred, delta_q_limit(j)), -delta_q_limit(j));
-
-            delta_dq(i+1,j) = dq_pred;
-            delta_q(i+1,j)  = q_pred;
+            % Shared discrete motion supervisor: apply all limits to the
+            % actual integrated state, not independently projected outputs.
+            [q_pred, dq_pred, a_applied] = bounded_admittance_step( ...
+                delta_q(i,j),delta_dq(i,j),delta_ddq(i,j), ...
+                delta_ddq_tmp,dt,delta_q_limit(j), ...
+                delta_dq_limit(j),delta_ddq_limit(j),jerk_limit(j));
+            delta_q(i+1,j)   = q_pred;
+            delta_dq(i+1,j)  = dq_pred;
+            delta_ddq(i+1,j) = a_applied;
+        end
+        if use_execution
+            % Update real joint state using inner servo, actuator lag,
+            % delayed command, coupled inertia, and signed load proxy.
+            plant = execution_dynamics_step('step',plant,params,i, ...
+                q_ref(i,:)+delta_q(i,:), dq_ref(i,:)+delta_dq(i,:), ...
+                execution_reference_ddq(ddq_ref, dq_ref, i, dt)+delta_ddq(i,:), ...
+                interaction_diag.fb_true(i,:));
         end
     end
 
     %% ================= 末尾补值 =================
-    delta_q(end,:)   = delta_q(end-1,:);
-    delta_dq(end,:)  = delta_dq(end-1,:);
-    delta_ddq(end,:) = delta_ddq(end-1,:);
+
+    % Preserve q/v/a(end): computed by the last supervised integration step.
     quiet_zone_flag(end,:) = quiet_zone_flag(end-1,:);
     e_fb_used_all(end,:)   = e_fb_used_all(end-1,:);
     e_fb_raw_all(end,:)    = e_fb_raw_all(end-1,:);
 
     % 六分量诊断末尾补齐，并执行代数一致性检查
     interaction_diag = finalize_interaction_diag_fixed_controller_core(interaction_diag, params);
+    if use_execution
+        plant = execution_dynamics_step('finish',plant,params, ...
+            q_ref(end,:)+delta_q(end,:), ...
+            dq_ref(end,:)+delta_dq(end,:), ...
+            execution_reference_ddq(ddq_ref,dq_ref,N,dt)+delta_ddq(end,:));
+        interaction_diag.execution = plant;
+    end
 
     exec_time = toc;
     fprintf('固定导纳（闭环反馈+失配补偿）运行完成：QuietZone 平均激活率 %.2f%% | 执行时间 %.3f s\n', ...
@@ -228,9 +264,10 @@ end
 
 function diag = init_interaction_diag_fixed_controller_core(N)
 %INIT_INTERACTION_DIAG 预分配六分量诊断结构体。
-    fields = {'mismatch','spasm','synergy','fatigue','event','noise', ...
+    fields = {'mismatch','predicted_mismatch','spasm','synergy','fatigue','event','noise', ...
               'pathological','compensated','used','raw', ...
-              'fb_nominal_ref','fb_nominal_cmd','fb_true'};
+              'fb_nominal_ref','fb_nominal_cmd','fb_true', ...
+              'reference_model_bias','fb_nominal_true_ref','fb_nominal_true_exec'};
     diag = struct();
     for k = 1:numel(fields)
         diag.(fields{k}) = zeros(N,3);
@@ -248,7 +285,8 @@ function diag = finalize_interaction_diag_fixed_controller_core(diag, params)
         diag.(fields{k}) = x;
     end
 
-    raw_reconstructed = diag.mismatch + diag.spasm + diag.synergy + ...
+    raw_reconstructed = diag.mismatch + diag.reference_model_bias + ...
+                        diag.spasm + diag.synergy + ...
                         diag.fatigue + diag.event + diag.noise;
     err_raw = max(abs(diag.raw(:) - raw_reconstructed(:)));
     assert(err_raw < 1e-10, ...
@@ -257,12 +295,13 @@ function diag = finalize_interaction_diag_fixed_controller_core(diag, params)
 
     Kmis = params.K_mismatch_comp;
     if isscalar(Kmis), Kmis = repmat(Kmis,1,3); end
-    if max(abs(Kmis(:)-1)) < 1e-12
-        err_comp = max(abs(diag.compensated(:) - diag.pathological(:)));
-        assert(err_comp < 1e-10, ...
-            'fixed_admittance:MismatchCompensation', ...
-            'K_mismatch_comp=1 时 compensated 应等于 pathological，最大误差 %.3e', err_comp);
-    end
+    % Under nonideal execution, the compensated signal retains the
+    % executed-minus-commanded nominal interaction discrepancy.
+    comp_expected = diag.pathological + diag.mismatch + diag.reference_model_bias - ...
+        bsxfun(@times,diag.predicted_mismatch,reshape(Kmis,1,3));
+    err_comp = max(abs(diag.compensated(:)-comp_expected(:)));
+    assert(err_comp < 1e-10, 'Execution:CompensationAudit', ...
+        'Compensated interaction identity error %.3e', err_comp);
 end
 
 function [delta_q, delta_dq, delta_ddq, Ba_lit, Ka_lit, Ga_lit, quiet_zone_flag, e_fb_used_all, e_fb_raw_all, interaction_diag] = ...
@@ -336,6 +375,7 @@ function [delta_q, delta_dq, delta_ddq, Ba_lit, Ka_lit, Ga_lit, quiet_zone_flag,
     if isscalar(jerk_limit), jerk_limit = repmat(jerk_limit, 1, 3); end
     K_mis = params.K_mismatch_comp;
     if isscalar(K_mis), K_mis = repmat(K_mis, 1, 3); end
+    patient_truth = model_mismatch_utils('resolve', params);
 
     % 关节极限（用于边界接近度 φ(q)）
     q1_max = params.q1_max; q2_max = params.q2_max;
@@ -352,13 +392,29 @@ function [delta_q, delta_dq, delta_ddq, Ba_lit, Ka_lit, Ga_lit, quiet_zone_flag,
     e_fb_used_all   = zeros(N, 3);
     e_fb_raw_all    = zeros(N, 3);
 
-    % ================= 六分量交互力矩诊断（仅记录，不参与控制） =================
-    % raw = mismatch + spasm + synergy + fatigue + event + noise
+    % ================= 真实/估计模型分离与交互分解诊断（只记录） =================
+    % raw = true motion mismatch + reference-model bias + pathology.
+    % The extra bias is zero for the frozen exact-model experiments.
     interaction_diag = init_interaction_diag_zhang2018_controller_core(N);
+
+    % Optional coupled execution dynamics, OFF by default to preserve all
+    % previously reported command-level simulations and results.
+    use_execution = isfield(params,'execution_dynamics') && ...
+        isfield(params.execution_dynamics,'enabled') && params.execution_dynamics.enabled;
+    if use_execution
+        plant = execution_dynamics_step('init', [], params, q_ref, dq_ref);
+    end
 
     %% ================= 主循环 =================
     for i = 1:N-1
-        i_prev = max(i-1, 1);   % 上一步索引（用于上一步修正量）
+
+        if use_execution
+            q_interaction = plant.q(i,:);
+            dq_interaction = plant.dq(i,:);
+        else
+            q_interaction = q_ref(i,:) + delta_q(i,:);
+            dq_interaction = dq_ref(i,:) + delta_dq(i,:);
+        end
         for j = 1:3
             % ---- 当前命令轨迹（标量） ----
             q_cmd_cur  = q_ref(i,j)   + delta_q(i,j);
@@ -377,15 +433,29 @@ function [delta_q, delta_dq, delta_ddq, Ba_lit, Ka_lit, Ga_lit, quiet_zone_flag,
             % ② 命令基线（机器人实际命令状态下的正常阻抗）
             phi_cmd_j = min((abs(q_cmd_cur) / q_max(j))^2, 1.0);
             fb_nominal_cmd = B0 + Kq*abs(q_cmd_cur) + Kv*abs(dq_cmd_cur) + Ke*phi_cmd_j;
+            % Separate predicted command-state baseline from physical executed-state baseline.
+            phi_exec_j = min((abs(q_interaction(j))/q_max(j))^2,1.0);
+            % The simulated patient/plant has independent nominal parameters.
+            % When params.patient_nominal_truth is absent, these resolve to
+            % B0/Kq/Kv/Ke above, preserving the frozen legacy study.
+            B0_true = patient_truth.B0(j);
+            Kq_true = patient_truth.Kq_fb(j);
+            Kv_true = patient_truth.Kv_fb(j);
+            Ke_true = patient_truth.Ke_fb(j);
+            fb_nominal_true_ref = B0_true + Kq_true*abs(q_ref(i,j)) + ...
+                Kv_true*abs(dq_ref(i,j)) + Ke_true*phi_ref_j;
+            fb_nominal_exec = B0_true + Kq_true*abs(q_interaction(j)) + ...
+                Kv_true*abs(dq_interaction(j)) + Ke_true*phi_exec_j;
+            reference_model_bias = fb_nominal_true_ref - fb_nominal_ref;
 
             % ③ 异常扰动
             % 痉挛：门控使用实际命令角度(平滑sigmoid)，强度使用参考速度(避免正反馈)
             gate_st = params.spasm_gate_steepness;
             if j == 1  % 髋
-                gate = 1 ./ (1 + exp(-gate_st * max(min(q_cmd_cur - params.spasm_q_hip_th, 5), -5)));
+                gate = 1 ./ (1 + exp(-gate_st * max(min(q_interaction(j) - params.spasm_q_hip_th, 5), -5)));
                 spasm = (params.spasm_c1/100) * abs(dq_ref(i,j)) * gate;
             elseif j == 2  % 膝（耦合项改用髋参考速度）
-                gate = 1 ./ (1 + exp(gate_st * max(min(q_cmd_cur + params.spasm_q_knee_th, 5), -5)));
+                gate = 1 ./ (1 + exp(gate_st * max(min(q_interaction(j) + params.spasm_q_knee_th, 5), -5)));
                 spasm = (params.spasm_c2/100) * abs(dq_ref(i,j) + 0.15*dq_ref(i,1)) * gate;
             else  % 踝（耦合项改用膝参考速度）
                 spasm = params.spasm_c3 * abs(dq_ref(i,j) + 0.20*dq_ref(i,2));
@@ -393,11 +463,11 @@ function [delta_q, delta_dq, delta_ddq, Ba_lit, Ka_lit, Ga_lit, quiet_zone_flag,
 
             % 协同（其他关节使用命令状态 q_cmd = q_ref + delta_q，单步延迟耦合）
             if j == 1
-                synergy = params.Csyn(1) * abs(q_ref(i,2) + delta_q(i,2));
+                synergy = params.Csyn(1) * abs(q_interaction(2));
             elseif j == 2
-                synergy = params.Csyn(2) * abs(q_ref(i,1) + delta_q(i,1));
+                synergy = params.Csyn(2) * abs(q_interaction(1));
             else
-                synergy = params.Csyn(3) * abs(q_ref(i,2) + delta_q(i,2));
+                synergy = params.Csyn(3) * abs(q_interaction(2));
             end
 
             % 疲劳、事件、噪声（预生成）
@@ -406,19 +476,23 @@ function [delta_q, delta_dq, delta_ddq, Ba_lit, Ka_lit, Ga_lit, quiet_zone_flag,
             noise   = pre_fb.noise_all(i,j);
 
             % 真实反馈（暂不考虑延迟）
-            fb_true = fb_nominal_cmd + spasm + synergy + fatigue + event + noise;
+            fb_true = fb_nominal_exec + spasm + synergy + fatigue + event + noise;
 
             % 原始误差：相对“参考基线”，显式包含阻抗失配项
             e_fb_raw = fb_true - fb_nominal_ref;
 
             % ④ 阻抗失配前馈补偿（防止 Kv*Δdq 自激正反馈）
-            mismatch = fb_nominal_cmd - fb_nominal_ref;
-
-            e_fb_comp = e_fb_raw - K_mis(j) * mismatch;
+            mismatch = fb_nominal_exec - fb_nominal_true_ref;
+            mismatch_pred = fb_nominal_cmd - fb_nominal_ref;
+            e_fb_comp = e_fb_raw - K_mis(j) * mismatch_pred;
 
             % ---- 六分量诊断记录：此处只记录，不改变闭环计算 ----
             pathological = spasm + synergy + fatigue + event + noise;
             interaction_diag.mismatch(i,j) = mismatch;
+            interaction_diag.reference_model_bias(i,j) = reference_model_bias;
+            interaction_diag.fb_nominal_true_ref(i,j) = fb_nominal_true_ref;
+            interaction_diag.fb_nominal_true_exec(i,j) = fb_nominal_exec;
+            interaction_diag.predicted_mismatch(i,j) = mismatch_pred;
             interaction_diag.spasm(i,j) = spasm;
             interaction_diag.synergy(i,j) = synergy;
             interaction_diag.fatigue(i,j) = fatigue;
@@ -443,7 +517,7 @@ function [delta_q, delta_dq, delta_ddq, Ba_lit, Ka_lit, Ga_lit, quiet_zone_flag,
                     ddq_ref_i = (dq_ref(i+1,j) - dq_ref(i-1,j)) / (2*dt);
                 end
             end
-            ddq_cmd_est = ddq_ref_i + delta_ddq(i_prev, j);
+            ddq_cmd_est = ddq_ref_i + delta_ddq(i, j);
 
             % ⑥ 死区 + 静止区处理（对补偿后的误差进行）
             [e_fb_use, quiet_flag] = apply_deadzone_and_quietzone(e_fb_comp, q_cmd_cur, dq_cmd_cur, ...
@@ -497,39 +571,33 @@ function [delta_q, delta_dq, delta_ddq, Ba_lit, Ka_lit, Ga_lit, quiet_zone_flag,
             Ka_lit(i,j) = Ka_tmp;
             Ga_lit(i,j) = Ga_tmp;
 
-            % ---- 导纳离散（后向欧拉） ----
+            % ---- 导纳期望加速度：由共同的半隐式约束积分器执行 ----
             delta_ddq_tmp = (Ga_tmp * e_fb_use ...
                            - Ba_tmp * delta_dq(i,j) ...
                            - Ka_tmp * delta_q(i,j)) / Ma0(j);
-            % 加速度限幅
-            delta_ddq_tmp = max(min(delta_ddq_tmp, delta_ddq_limit(j)), -delta_ddq_limit(j));
-
-            % ★ 急动度限幅：限制每步加速度变化率，消除速度/加速度尖峰
-            if i > 1
-                ddq_prev = delta_ddq(i-1, j);
-            else
-                ddq_prev = 0;
-            end
-            max_step = jerk_limit(j) * dt;
-            delta_ddq_tmp = max(min(delta_ddq_tmp, ddq_prev + max_step), ddq_prev - max_step);
-            delta_ddq(i,j) = delta_ddq_tmp;
-
-            % 积分
-            dq_pred = delta_dq(i,j) + delta_ddq_tmp * dt;
-            dq_pred = max(min(dq_pred, delta_dq_limit(j)), -delta_dq_limit(j));
-
-            q_pred = delta_q(i,j) + dq_pred * dt;
-            q_pred = max(min(q_pred, delta_q_limit(j)), -delta_q_limit(j));
-
-            delta_dq(i+1,j) = dq_pred;
-            delta_q(i+1,j)  = q_pred;
+            % Shared discrete motion supervisor: apply all limits to the
+            % actual integrated state, not independently projected outputs.
+            [q_pred, dq_pred, a_applied] = bounded_admittance_step( ...
+                delta_q(i,j),delta_dq(i,j),delta_ddq(i,j), ...
+                delta_ddq_tmp,dt,delta_q_limit(j), ...
+                delta_dq_limit(j),delta_ddq_limit(j),jerk_limit(j));
+            delta_q(i+1,j)   = q_pred;
+            delta_dq(i+1,j)  = dq_pred;
+            delta_ddq(i+1,j) = a_applied;
+        end
+        if use_execution
+            % Update real joint state using inner servo, actuator lag,
+            % delayed command, coupled inertia, and signed load proxy.
+            plant = execution_dynamics_step('step',plant,params,i, ...
+                q_ref(i,:)+delta_q(i,:), dq_ref(i,:)+delta_dq(i,:), ...
+                execution_reference_ddq(ddq_ref, dq_ref, i, dt)+delta_ddq(i,:), ...
+                interaction_diag.fb_true(i,:));
         end
     end
 
     %% ================= 末尾补齐 =================
-    delta_q(end,:)   = delta_q(end-1,:);
-    delta_dq(end,:)  = delta_dq(end-1,:);
-    delta_ddq(end,:) = delta_ddq(end-1,:);
+
+    % Preserve q/v/a(end): computed by the last supervised integration step.
     Ba_lit(end,:) = Ba_lit(end-1,:);
     Ka_lit(end,:) = Ka_lit(end-1,:);
     Ga_lit(end,:) = Ga_lit(end-1,:);
@@ -539,6 +607,13 @@ function [delta_q, delta_dq, delta_ddq, Ba_lit, Ka_lit, Ga_lit, quiet_zone_flag,
 
     % 六分量诊断末尾补齐，并执行代数一致性检查
     interaction_diag = finalize_interaction_diag_zhang2018_controller_core(interaction_diag, params);
+    if use_execution
+        plant = execution_dynamics_step('finish',plant,params, ...
+            q_ref(end,:)+delta_q(end,:), ...
+            dq_ref(end,:)+delta_dq(end,:), ...
+            execution_reference_ddq(ddq_ref,dq_ref,N,dt)+delta_ddq(end,:));
+        interaction_diag.execution = plant;
+    end
 
     exec_time = toc;
     fprintf('✅ Zhang-2018-derived VA（posture/interaction-ratio B/K + shared shell）运行完成：QuietZone 平均激活率 %.2f%% | 执行时间 %.3f s\n', ...
@@ -547,9 +622,10 @@ end
 
 function diag = init_interaction_diag_zhang2018_controller_core(N)
 %INIT_INTERACTION_DIAG 预分配六分量诊断结构体。
-    fields = {'mismatch','spasm','synergy','fatigue','event','noise', ...
+    fields = {'mismatch','predicted_mismatch','spasm','synergy','fatigue','event','noise', ...
               'pathological','compensated','used','raw', ...
-              'fb_nominal_ref','fb_nominal_cmd','fb_true'};
+              'fb_nominal_ref','fb_nominal_cmd','fb_true', ...
+              'reference_model_bias','fb_nominal_true_ref','fb_nominal_true_exec'};
     diag = struct();
     for k = 1:numel(fields)
         diag.(fields{k}) = zeros(N,3);
@@ -567,7 +643,8 @@ function diag = finalize_interaction_diag_zhang2018_controller_core(diag, params
         diag.(fields{k}) = x;
     end
 
-    raw_reconstructed = diag.mismatch + diag.spasm + diag.synergy + ...
+    raw_reconstructed = diag.mismatch + diag.reference_model_bias + ...
+                        diag.spasm + diag.synergy + ...
                         diag.fatigue + diag.event + diag.noise;
     err_raw = max(abs(diag.raw(:) - raw_reconstructed(:)));
     assert(err_raw < 1e-10, ...
@@ -576,12 +653,13 @@ function diag = finalize_interaction_diag_zhang2018_controller_core(diag, params
 
     Kmis = params.K_mismatch_comp;
     if isscalar(Kmis), Kmis = repmat(Kmis,1,3); end
-    if max(abs(Kmis(:)-1)) < 1e-12
-        err_comp = max(abs(diag.compensated(:) - diag.pathological(:)));
-        assert(err_comp < 1e-10, ...
-            'zhang2018_variable_admittance:MismatchCompensation', ...
-            'K_mismatch_comp=1 时 compensated 应等于 pathological，最大误差 %.3e', err_comp);
-    end
+    % Under nonideal execution, the compensated signal retains the
+    % executed-minus-commanded nominal interaction discrepancy.
+    comp_expected = diag.pathological + diag.mismatch + diag.reference_model_bias - ...
+        bsxfun(@times,diag.predicted_mismatch,reshape(Kmis,1,3));
+    err_comp = max(abs(diag.compensated(:)-comp_expected(:)));
+    assert(err_comp < 1e-10, 'Execution:CompensationAudit', ...
+        'Compensated interaction identity error %.3e', err_comp);
 end
 
 function [delta_q, delta_dq, delta_ddq, Ba_lit, Ka_lit, Ga_lit, quiet_zone_flag, e_fb_used_all, e_fb_raw_all, interaction_diag] = ...
@@ -647,6 +725,7 @@ function [delta_q, delta_dq, delta_ddq, Ba_lit, Ka_lit, Ga_lit, quiet_zone_flag,
     if isscalar(jerk_limit), jerk_limit = repmat(jerk_limit, 1, 3); end
     K_mis = params.K_mismatch_comp;
     if isscalar(K_mis), K_mis = repmat(K_mis, 1, 3); end
+    patient_truth = model_mismatch_utils('resolve', params);
 
     q1_max = params.q1_max; q2_max = params.q2_max;
     if isfield(params,'q3_max'), q3_max = params.q3_max; else q3_max = 0.5; end
@@ -681,12 +760,27 @@ function [delta_q, delta_dq, delta_ddq, Ba_lit, Ka_lit, Ga_lit, quiet_zone_flag,
     e_fb_raw_all    = zeros(N, 3);
     interaction_diag = init_interaction_diag_cao2024_controller_core(N);
 
+    % Optional coupled execution dynamics, OFF by default to preserve all
+    % previously reported command-level simulations and results.
+    use_execution = isfield(params,'execution_dynamics') && ...
+        isfield(params.execution_dynamics,'enabled') && params.execution_dynamics.enabled;
+    if use_execution
+        plant = execution_dynamics_step('init', [], params, q_ref, dq_ref);
+    end
+
     %% ================= 主循环 =================
     for i = 1:N-1
-        i_prev = max(i-1, 1);
+
         cycle_idx = floor((i-1)/samples_per_cycle) + 1;
         phase_idx = mod(i-1, samples_per_cycle) + 1;
 
+        if use_execution
+            q_interaction = plant.q(i,:);
+            dq_interaction = plant.dq(i,:);
+        else
+            q_interaction = q_ref(i,:) + delta_q(i,:);
+            dq_interaction = dq_ref(i,:) + delta_dq(i,:);
+        end
         for j = 1:3
             q_cmd_cur  = q_ref(i,j)  + delta_q(i,j);
             dq_cmd_cur = dq_ref(i,j) + delta_dq(i,j);
@@ -702,37 +796,56 @@ function [delta_q, delta_dq, delta_ddq, Ba_lit, Ka_lit, Ga_lit, quiet_zone_flag,
 
             phi_cmd_j = min((abs(q_cmd_cur) / q_max(j))^2, 1.0);
             fb_nominal_cmd = B0 + Kq*abs(q_cmd_cur) + Kv*abs(dq_cmd_cur) + Ke*phi_cmd_j;
+            % Separate predicted command-state baseline from physical executed-state baseline.
+            phi_exec_j = min((abs(q_interaction(j))/q_max(j))^2,1.0);
+            % The simulated patient/plant has independent nominal parameters.
+            % When params.patient_nominal_truth is absent, these resolve to
+            % B0/Kq/Kv/Ke above, preserving the frozen legacy study.
+            B0_true = patient_truth.B0(j);
+            Kq_true = patient_truth.Kq_fb(j);
+            Kv_true = patient_truth.Kv_fb(j);
+            Ke_true = patient_truth.Ke_fb(j);
+            fb_nominal_true_ref = B0_true + Kq_true*abs(q_ref(i,j)) + ...
+                Kv_true*abs(dq_ref(i,j)) + Ke_true*phi_ref_j;
+            fb_nominal_exec = B0_true + Kq_true*abs(q_interaction(j)) + ...
+                Kv_true*abs(dq_interaction(j)) + Ke_true*phi_exec_j;
+            reference_model_bias = fb_nominal_true_ref - fb_nominal_ref;
 
             gate_st = params.spasm_gate_steepness;
             if j == 1
-                gate = 1 ./ (1 + exp(-gate_st * max(min(q_cmd_cur - params.spasm_q_hip_th, 5), -5)));
+                gate = 1 ./ (1 + exp(-gate_st * max(min(q_interaction(j) - params.spasm_q_hip_th, 5), -5)));
                 spasm = (params.spasm_c1/100) * abs(dq_ref(i,j)) * gate;
             elseif j == 2
-                gate = 1 ./ (1 + exp(gate_st * max(min(q_cmd_cur + params.spasm_q_knee_th, 5), -5)));
+                gate = 1 ./ (1 + exp(gate_st * max(min(q_interaction(j) + params.spasm_q_knee_th, 5), -5)));
                 spasm = (params.spasm_c2/100) * abs(dq_ref(i,j) + 0.15*dq_ref(i,1)) * gate;
             else
                 spasm = params.spasm_c3 * abs(dq_ref(i,j) + 0.20*dq_ref(i,2));
             end
 
             if j == 1
-                synergy = params.Csyn(1) * abs(q_ref(i,2) + delta_q(i,2));
+                synergy = params.Csyn(1) * abs(q_interaction(2));
             elseif j == 2
-                synergy = params.Csyn(2) * abs(q_ref(i,1) + delta_q(i,1));
+                synergy = params.Csyn(2) * abs(q_interaction(1));
             else
-                synergy = params.Csyn(3) * abs(q_ref(i,2) + delta_q(i,2));
+                synergy = params.Csyn(3) * abs(q_interaction(2));
             end
 
             fatigue = pre_fb.fatigue_slope(j) * params.cfatigue * pre_fb.fatigue_trend(i);
             event   = pre_fb.event_all(i,j);
             noise   = pre_fb.noise_all(i,j);
 
-            fb_true = fb_nominal_cmd + spasm + synergy + fatigue + event + noise;
+            fb_true = fb_nominal_exec + spasm + synergy + fatigue + event + noise;
             e_fb_raw = fb_true - fb_nominal_ref;
-            mismatch = fb_nominal_cmd - fb_nominal_ref;
-            e_fb_comp = e_fb_raw - K_mis(j) * mismatch;
+            mismatch = fb_nominal_exec - fb_nominal_true_ref;
+            mismatch_pred = fb_nominal_cmd - fb_nominal_ref;
+            e_fb_comp = e_fb_raw - K_mis(j) * mismatch_pred;
 
             pathological = spasm + synergy + fatigue + event + noise;
             interaction_diag.mismatch(i,j) = mismatch;
+            interaction_diag.reference_model_bias(i,j) = reference_model_bias;
+            interaction_diag.fb_nominal_true_ref(i,j) = fb_nominal_true_ref;
+            interaction_diag.fb_nominal_true_exec(i,j) = fb_nominal_exec;
+            interaction_diag.predicted_mismatch(i,j) = mismatch_pred;
             interaction_diag.spasm(i,j) = spasm;
             interaction_diag.synergy(i,j) = synergy;
             interaction_diag.fatigue(i,j) = fatigue;
@@ -756,7 +869,7 @@ function [delta_q, delta_dq, delta_ddq, Ba_lit, Ka_lit, Ga_lit, quiet_zone_flag,
                     ddq_ref_i = (dq_ref(i+1,j) - dq_ref(i-1,j)) / (2*dt);
                 end
             end
-            ddq_cmd_est = ddq_ref_i + delta_ddq(i_prev, j);
+            ddq_cmd_est = ddq_ref_i + delta_ddq(i, j);
 
             [e_fb_use, quiet_flag] = apply_deadzone_and_quietzone(e_fb_comp, q_cmd_cur, dq_cmd_cur, ...
                 ddq_cmd_est, j, params);
@@ -792,22 +905,15 @@ function [delta_q, delta_dq, delta_ddq, Ba_lit, Ka_lit, Ga_lit, quiet_zone_flag,
             delta_ddq_tmp = (Ga_tmp * e_fb_use ...
                            - Ba_tmp * delta_dq(i,j) ...
                            - Ka_tmp * delta_q(i,j)) / Ma0(j);
-            delta_ddq_tmp = max(min(delta_ddq_tmp, delta_ddq_limit(j)), -delta_ddq_limit(j));
-            if i > 1
-                ddq_prev = delta_ddq(i-1, j);
-            else
-                ddq_prev = 0;
-            end
-            max_step = jerk_limit(j) * dt;
-            delta_ddq_tmp = max(min(delta_ddq_tmp, ddq_prev + max_step), ddq_prev - max_step);
-            delta_ddq(i,j) = delta_ddq_tmp;
-
-            dq_pred = delta_dq(i,j) + delta_ddq_tmp * dt;
-            dq_pred = max(min(dq_pred, delta_dq_limit(j)), -delta_dq_limit(j));
-            q_pred = delta_q(i,j) + dq_pred * dt;
-            q_pred = max(min(q_pred, delta_q_limit(j)), -delta_q_limit(j));
-            delta_dq(i+1,j) = dq_pred;
-            delta_q(i+1,j)  = q_pred;
+            % Shared discrete motion supervisor: apply all limits to the
+            % actual integrated state, not independently projected outputs.
+            [q_pred, dq_pred, a_applied] = bounded_admittance_step( ...
+                delta_q(i,j),delta_dq(i,j),delta_ddq(i,j), ...
+                delta_ddq_tmp,dt,delta_q_limit(j), ...
+                delta_dq_limit(j),delta_ddq_limit(j),jerk_limit(j));
+            delta_q(i+1,j)   = q_pred;
+            delta_dq(i+1,j)  = dq_pred;
+            delta_ddq(i+1,j) = a_applied;
 
             % ---- Causal update for the SAME phase in the NEXT repetition ----
             % The source obtains dW/dF through an ILC environmental model.
@@ -840,12 +946,19 @@ function [delta_q, delta_dq, delta_ddq, Ba_lit, Ka_lit, Ga_lit, quiet_zone_flag,
             B_phase(phase_idx,j) = B_next;
             K_phase(phase_idx,j) = K_next;
         end
+        if use_execution
+            % Update real joint state using inner servo, actuator lag,
+            % delayed command, coupled inertia, and signed load proxy.
+            plant = execution_dynamics_step('step',plant,params,i, ...
+                q_ref(i,:)+delta_q(i,:), dq_ref(i,:)+delta_dq(i,:), ...
+                execution_reference_ddq(ddq_ref, dq_ref, i, dt)+delta_ddq(i,:), ...
+                interaction_diag.fb_true(i,:));
+        end
     end
 
     %% ================= 末尾补齐 =================
-    delta_q(end,:)   = delta_q(end-1,:);
-    delta_dq(end,:)  = delta_dq(end-1,:);
-    delta_ddq(end,:) = delta_ddq(end-1,:);
+
+    % Preserve q/v/a(end): computed by the last supervised integration step.
     Ba_lit(end,:) = Ba_lit(end-1,:);
     Ka_lit(end,:) = Ka_lit(end-1,:);
     Ga_lit(end,:) = Ga_lit(end-1,:);
@@ -854,6 +967,13 @@ function [delta_q, delta_dq, delta_ddq, Ba_lit, Ka_lit, Ga_lit, quiet_zone_flag,
     e_fb_raw_all(end,:)    = e_fb_raw_all(end-1,:);
 
     interaction_diag = finalize_interaction_diag_cao2024_controller_core(interaction_diag, params);
+    if use_execution
+        plant = execution_dynamics_step('finish',plant,params, ...
+            q_ref(end,:)+delta_q(end,:), ...
+            dq_ref(end,:)+delta_dq(end,:), ...
+            execution_reference_ddq(ddq_ref,dq_ref,N,dt)+delta_ddq(end,:));
+        interaction_diag.execution = plant;
+    end
 
     exec_time = toc;
     if verbose
@@ -871,9 +991,10 @@ end
 
 function diag = init_interaction_diag_cao2024_controller_core(N)
 %INIT_INTERACTION_DIAG Preallocate shared + Cao-port diagnostic fields.
-    fields = {'mismatch','spasm','synergy','fatigue','event','noise', ...
+    fields = {'mismatch','predicted_mismatch','spasm','synergy','fatigue','event','noise', ...
               'pathological','compensated','used','raw', ...
               'fb_nominal_ref','fb_nominal_cmd','fb_true', ...
+              'reference_model_bias','fb_nominal_true_ref','fb_nominal_true_exec', ...
               'cao_cycle_index','cao_phase_index','cao_gradient_surrogate', ...
               'cao_base_B','cao_base_K','cao_VB','cao_VK','cao_next_B','cao_next_K'};
     diag = struct();
@@ -893,7 +1014,8 @@ function diag = finalize_interaction_diag_cao2024_controller_core(diag, params)
         diag.(fields{k}) = x;
     end
 
-    raw_reconstructed = diag.mismatch + diag.spasm + diag.synergy + ...
+    raw_reconstructed = diag.mismatch + diag.reference_model_bias + ...
+                        diag.spasm + diag.synergy + ...
                         diag.fatigue + diag.event + diag.noise;
     err_raw = max(abs(diag.raw(:) - raw_reconstructed(:)));
     assert(err_raw < 1e-10, ...
@@ -902,12 +1024,13 @@ function diag = finalize_interaction_diag_cao2024_controller_core(diag, params)
 
     Kmis = params.K_mismatch_comp;
     if isscalar(Kmis), Kmis = repmat(Kmis,1,3); end
-    if max(abs(Kmis(:)-1)) < 1e-12
-        err_comp = max(abs(diag.compensated(:) - diag.pathological(:)));
-        assert(err_comp < 1e-10, ...
-            'cao2024_variable_admittance:MismatchCompensation', ...
-            'K_mismatch_comp=1 时 compensated 应等于 pathological，最大误差 %.3e', err_comp);
-    end
+    % Under nonideal execution, the compensated signal retains the
+    % executed-minus-commanded nominal interaction discrepancy.
+    comp_expected = diag.pathological + diag.mismatch + diag.reference_model_bias - ...
+        bsxfun(@times,diag.predicted_mismatch,reshape(Kmis,1,3));
+    err_comp = max(abs(diag.compensated(:)-comp_expected(:)));
+    assert(err_comp < 1e-10, 'Execution:CompensationAudit', ...
+        'Compensated interaction identity error %.3e', err_comp);
 end
 
 function [delta_q, delta_dq, delta_ddq, Ba_adp, Ka_adp, Ga_adp, quiet_zone_flag, e_fb_used_all, e_fb_raw_all, interaction_diag] = ...
@@ -951,6 +1074,7 @@ function [delta_q, delta_dq, delta_ddq, Ba_adp, Ka_adp, Ga_adp, quiet_zone_flag,
     if isscalar(jerk_limit), jerk_limit = repmat(jerk_limit, 1, 3); end
     K_mis = params.K_mismatch_comp;
     if isscalar(K_mis), K_mis = repmat(K_mis, 1, 3); end
+    patient_truth = model_mismatch_utils('resolve', params);
 
     % 关节极限（用于边界接近度 φ(q)）
     q1_max = params.q1_max; q2_max = params.q2_max;
@@ -966,16 +1090,32 @@ function [delta_q, delta_dq, delta_ddq, Ba_adp, Ka_adp, Ga_adp, quiet_zone_flag,
     e_fb_used_all   = zeros(N, 3);
     e_fb_raw_all    = zeros(N, 3);
 
-    % ================= 六分量交互力矩诊断（仅记录，不参与控制） =================
-    % raw = mismatch + spasm + synergy + fatigue + event + noise
+    % ================= 真实/估计模型分离与交互分解诊断（只记录） =================
+    % raw = true motion mismatch + reference-model bias + pathology.
+    % The extra bias is zero for the frozen exact-model experiments.
     interaction_diag = init_interaction_diag_proposed_controller_core(N);
+
+    % Optional coupled execution dynamics, OFF by default to preserve all
+    % previously reported command-level simulations and results.
+    use_execution = isfield(params,'execution_dynamics') && ...
+        isfield(params.execution_dynamics,'enabled') && params.execution_dynamics.enabled;
+    if use_execution
+        plant = execution_dynamics_step('init', [], params, q_ref, dq_ref);
+    end
 
     % 为差分计算保留上一步的 e_fb_use
     e_fb_prev = zeros(1, 3);
 
     %% ================= 主循环 =================
     for i = 1:N-1
-        i_prev = max(i-1, 1);   % 上一步索引（用于上一步修正量）
+
+        if use_execution
+            q_interaction = plant.q(i,:);
+            dq_interaction = plant.dq(i,:);
+        else
+            q_interaction = q_ref(i,:) + delta_q(i,:);
+            dq_interaction = dq_ref(i,:) + delta_dq(i,:);
+        end
         for j = 1:3
             % ---- 当前命令轨迹（标量） ----
             q_cmd_cur  = q_ref(i,j)   + delta_q(i,j);
@@ -994,15 +1134,29 @@ function [delta_q, delta_dq, delta_ddq, Ba_adp, Ka_adp, Ga_adp, quiet_zone_flag,
             % ② 命令基线（机器人实际命令状态下的正常阻抗）
             phi_cmd_j = min((abs(q_cmd_cur) / q_max(j))^2, 1.0);
             fb_nominal_cmd = B0 + Kq*abs(q_cmd_cur) + Kv*abs(dq_cmd_cur) + Ke*phi_cmd_j;
+            % Separate predicted command-state baseline from physical executed-state baseline.
+            phi_exec_j = min((abs(q_interaction(j))/q_max(j))^2,1.0);
+            % The simulated patient/plant has independent nominal parameters.
+            % When params.patient_nominal_truth is absent, these resolve to
+            % B0/Kq/Kv/Ke above, preserving the frozen legacy study.
+            B0_true = patient_truth.B0(j);
+            Kq_true = patient_truth.Kq_fb(j);
+            Kv_true = patient_truth.Kv_fb(j);
+            Ke_true = patient_truth.Ke_fb(j);
+            fb_nominal_true_ref = B0_true + Kq_true*abs(q_ref(i,j)) + ...
+                Kv_true*abs(dq_ref(i,j)) + Ke_true*phi_ref_j;
+            fb_nominal_exec = B0_true + Kq_true*abs(q_interaction(j)) + ...
+                Kv_true*abs(dq_interaction(j)) + Ke_true*phi_exec_j;
+            reference_model_bias = fb_nominal_true_ref - fb_nominal_ref;
 
             % ③ 异常扰动
             % 痉挛：门控使用实际命令角度(平滑sigmoid)，强度使用参考速度(避免正反馈)
             gate_st = params.spasm_gate_steepness;
             if j == 1  % 髋
-                gate = 1 ./ (1 + exp(-gate_st * max(min(q_cmd_cur - params.spasm_q_hip_th, 5), -5)));
+                gate = 1 ./ (1 + exp(-gate_st * max(min(q_interaction(j) - params.spasm_q_hip_th, 5), -5)));
                 spasm = (params.spasm_c1/100) * abs(dq_ref(i,j)) * gate;
             elseif j == 2  % 膝（耦合项改用髋参考速度）
-                gate = 1 ./ (1 + exp(gate_st * max(min(q_cmd_cur + params.spasm_q_knee_th, 5), -5)));
+                gate = 1 ./ (1 + exp(gate_st * max(min(q_interaction(j) + params.spasm_q_knee_th, 5), -5)));
                 spasm = (params.spasm_c2/100) * abs(dq_ref(i,j) + 0.15*dq_ref(i,1)) * gate;
             else  % 踝（耦合项改用膝参考速度）
                 spasm = params.spasm_c3 * abs(dq_ref(i,j) + 0.20*dq_ref(i,2));
@@ -1010,11 +1164,11 @@ function [delta_q, delta_dq, delta_ddq, Ba_adp, Ka_adp, Ga_adp, quiet_zone_flag,
 
             % 协同（其他关节使用命令状态 q_cmd = q_ref + delta_q，单步延迟耦合）
             if j == 1
-                synergy = params.Csyn(1) * abs(q_ref(i,2) + delta_q(i,2));
+                synergy = params.Csyn(1) * abs(q_interaction(2));
             elseif j == 2
-                synergy = params.Csyn(2) * abs(q_ref(i,1) + delta_q(i,1));
+                synergy = params.Csyn(2) * abs(q_interaction(1));
             else
-                synergy = params.Csyn(3) * abs(q_ref(i,2) + delta_q(i,2));
+                synergy = params.Csyn(3) * abs(q_interaction(2));
             end
 
             % 疲劳、事件、噪声（预生成）
@@ -1023,19 +1177,23 @@ function [delta_q, delta_dq, delta_ddq, Ba_adp, Ka_adp, Ga_adp, quiet_zone_flag,
             noise   = pre_fb.noise_all(i,j);
 
             % 真实反馈（暂不考虑延迟）
-            fb_true = fb_nominal_cmd + spasm + synergy + fatigue + event + noise;
+            fb_true = fb_nominal_exec + spasm + synergy + fatigue + event + noise;
 
             % 原始误差：相对“参考基线”，显式包含阻抗失配项
             e_fb_raw = fb_true - fb_nominal_ref;
 
             % ④ 阻抗失配前馈补偿（防止 Kv*Δdq 自激正反馈）
-            mismatch = fb_nominal_cmd - fb_nominal_ref;
-
-            e_fb_comp = e_fb_raw - K_mis(j) * mismatch;
+            mismatch = fb_nominal_exec - fb_nominal_true_ref;
+            mismatch_pred = fb_nominal_cmd - fb_nominal_ref;
+            e_fb_comp = e_fb_raw - K_mis(j) * mismatch_pred;
 
             % ---- 六分量诊断记录：此处只记录，不改变闭环计算 ----
             pathological = spasm + synergy + fatigue + event + noise;
             interaction_diag.mismatch(i,j) = mismatch;
+            interaction_diag.reference_model_bias(i,j) = reference_model_bias;
+            interaction_diag.fb_nominal_true_ref(i,j) = fb_nominal_true_ref;
+            interaction_diag.fb_nominal_true_exec(i,j) = fb_nominal_exec;
+            interaction_diag.predicted_mismatch(i,j) = mismatch_pred;
             interaction_diag.spasm(i,j) = spasm;
             interaction_diag.synergy(i,j) = synergy;
             interaction_diag.fatigue(i,j) = fatigue;
@@ -1060,7 +1218,7 @@ function [delta_q, delta_dq, delta_ddq, Ba_adp, Ka_adp, Ga_adp, quiet_zone_flag,
                     ddq_ref_i = (dq_ref(i+1,j) - dq_ref(i-1,j)) / (2*dt);
                 end
             end
-            ddq_cmd_est = ddq_ref_i + delta_ddq(i_prev, j);
+            ddq_cmd_est = ddq_ref_i + delta_ddq(i, j);
 
             % ⑥ 死区 + 静止区处理（对补偿后的误差进行）
             [e_fb_use, quiet_flag] = apply_deadzone_and_quietzone(e_fb_comp, q_cmd_cur, dq_cmd_cur, ...
@@ -1125,39 +1283,33 @@ function [delta_q, delta_dq, delta_ddq, Ba_adp, Ka_adp, Ga_adp, quiet_zone_flag,
             Ka_adp(i,j) = Ka_tmp;
             Ga_adp(i,j) = Ga_tmp;
 
-            % ---- 导纳离散（后向欧拉） ----
+            % ---- 导纳期望加速度：由共同的半隐式约束积分器执行 ----
             delta_ddq_tmp = (Ga_tmp * e_fb_use ...
                            - Ba_tmp * delta_dq(i,j) ...
                            - Ka_tmp * delta_q(i,j)) / Ma0(j);
-            % 加速度限幅
-            delta_ddq_tmp = max(min(delta_ddq_tmp, delta_ddq_limit(j)), -delta_ddq_limit(j));
-
-            % ★ 急动度限幅：限制每步加速度变化率，消除速度/加速度尖峰
-            if i > 1
-                ddq_prev = delta_ddq(i-1, j);
-            else
-                ddq_prev = 0;
-            end
-            max_step = jerk_limit(j) * dt;
-            delta_ddq_tmp = max(min(delta_ddq_tmp, ddq_prev + max_step), ddq_prev - max_step);
-            delta_ddq(i,j) = delta_ddq_tmp;
-
-            % 积分
-            dq_pred = delta_dq(i,j) + delta_ddq_tmp * dt;
-            dq_pred = max(min(dq_pred, delta_dq_limit(j)), -delta_dq_limit(j));
-
-            q_pred = delta_q(i,j) + dq_pred * dt;
-            q_pred = max(min(q_pred, delta_q_limit(j)), -delta_q_limit(j));
-
-            delta_dq(i+1,j) = dq_pred;
-            delta_q(i+1,j)  = q_pred;
+            % Shared discrete motion supervisor: apply all limits to the
+            % actual integrated state, not independently projected outputs.
+            [q_pred, dq_pred, a_applied] = bounded_admittance_step( ...
+                delta_q(i,j),delta_dq(i,j),delta_ddq(i,j), ...
+                delta_ddq_tmp,dt,delta_q_limit(j), ...
+                delta_dq_limit(j),delta_ddq_limit(j),jerk_limit(j));
+            delta_q(i+1,j)   = q_pred;
+            delta_dq(i+1,j)  = dq_pred;
+            delta_ddq(i+1,j) = a_applied;
+        end
+        if use_execution
+            % Update real joint state using inner servo, actuator lag,
+            % delayed command, coupled inertia, and signed load proxy.
+            plant = execution_dynamics_step('step',plant,params,i, ...
+                q_ref(i,:)+delta_q(i,:), dq_ref(i,:)+delta_dq(i,:), ...
+                execution_reference_ddq(ddq_ref, dq_ref, i, dt)+delta_ddq(i,:), ...
+                interaction_diag.fb_true(i,:));
         end
     end
 
     %% ================= 末尾补齐 =================
-    delta_q(end,:)   = delta_q(end-1,:);
-    delta_dq(end,:)  = delta_dq(end-1,:);
-    delta_ddq(end,:) = delta_ddq(end-1,:);
+
+    % Preserve q/v/a(end): computed by the last supervised integration step.
     Ba_adp(end,:) = Ba_adp(end-1,:);
     Ka_adp(end,:) = Ka_adp(end-1,:);
     Ga_adp(end,:) = Ga_adp(end-1,:);
@@ -1167,6 +1319,13 @@ function [delta_q, delta_dq, delta_ddq, Ba_adp, Ka_adp, Ga_adp, quiet_zone_flag,
 
     % 六分量诊断末尾补齐，并执行代数一致性检查
     interaction_diag = finalize_interaction_diag_proposed_controller_core(interaction_diag, params);
+    if use_execution
+        plant = execution_dynamics_step('finish',plant,params, ...
+            q_ref(end,:)+delta_q(end,:), ...
+            dq_ref(end,:)+delta_dq(end,:), ...
+            execution_reference_ddq(ddq_ref,dq_ref,N,dt)+delta_ddq(end,:));
+        interaction_diag.execution = plant;
+    end
 
     exec_time = toc;
     fprintf('✅ Proposed variant [%s] 运行完成：K_mis=[%.2f %.2f %.2f] | Adapt(B,K,G)=[%d %d %d] | QuietZone %.2f%% | %.3f s\n', ...
@@ -1176,9 +1335,10 @@ end
 
 function diag = init_interaction_diag_proposed_controller_core(N)
 %INIT_INTERACTION_DIAG 预分配六分量诊断结构体。
-    fields = {'mismatch','spasm','synergy','fatigue','event','noise', ...
+    fields = {'mismatch','predicted_mismatch','spasm','synergy','fatigue','event','noise', ...
               'pathological','compensated','used','raw', ...
-              'fb_nominal_ref','fb_nominal_cmd','fb_true'};
+              'fb_nominal_ref','fb_nominal_cmd','fb_true', ...
+              'reference_model_bias','fb_nominal_true_ref','fb_nominal_true_exec'};
     diag = struct();
     for k = 1:numel(fields)
         diag.(fields{k}) = zeros(N,3);
@@ -1196,7 +1356,8 @@ function diag = finalize_interaction_diag_proposed_controller_core(diag, params)
         diag.(fields{k}) = x;
     end
 
-    raw_reconstructed = diag.mismatch + diag.spasm + diag.synergy + ...
+    raw_reconstructed = diag.mismatch + diag.reference_model_bias + ...
+                        diag.spasm + diag.synergy + ...
                         diag.fatigue + diag.event + diag.noise;
     err_raw = max(abs(diag.raw(:) - raw_reconstructed(:)));
     assert(err_raw < 1e-10, ...
@@ -1205,12 +1366,13 @@ function diag = finalize_interaction_diag_proposed_controller_core(diag, params)
 
     Kmis = params.K_mismatch_comp;
     if isscalar(Kmis), Kmis = repmat(Kmis,1,3); end
-    if max(abs(Kmis(:)-1)) < 1e-12
-        err_comp = max(abs(diag.compensated(:) - diag.pathological(:)));
-        assert(err_comp < 1e-10, ...
-            'adaptive_admittance:MismatchCompensation', ...
-            'K_mismatch_comp=1 时 compensated 应等于 pathological，最大误差 %.3e', err_comp);
-    end
+    % Under nonideal execution, the compensated signal retains the
+    % executed-minus-commanded nominal interaction discrepancy.
+    comp_expected = diag.pathological + diag.mismatch + diag.reference_model_bias - ...
+        bsxfun(@times,diag.predicted_mismatch,reshape(Kmis,1,3));
+    err_comp = max(abs(diag.compensated(:)-comp_expected(:)));
+    assert(err_comp < 1e-10, 'Execution:CompensationAudit', ...
+        'Compensated interaction identity error %.3e', err_comp);
 end
 
 function [e_fb_used, quiet_zone_flag] = apply_deadzone_and_quietzone(e_fb_raw, q_ref_i, dq_ref_i, ddq_ref_i, j, params)
@@ -1254,4 +1416,16 @@ function [e_fb_used, quiet_zone_flag] = apply_deadzone_and_quietzone(e_fb_raw, q
     %% ================= 可选：日志记录（调试用） =================
     % 若需在论文Supplementary中展示静止区行为，可在此添加持久化记录
     % persistent log_data;
+end
+
+function acc = execution_reference_ddq(ddq_ref,dq_ref,i,dt)
+%EXECUTION_REFERENCE_DDQ Use analytical input when present, or finite difference.
+    if ~isempty(ddq_ref)
+        acc = ddq_ref(i,:);
+    elseif i < size(dq_ref,1)
+        acc = (dq_ref(i+1,:)-dq_ref(max(i-1,1),:)) / ...
+              ((i+1-max(i-1,1))*dt);
+    else
+        acc = zeros(1,3);
+    end
 end

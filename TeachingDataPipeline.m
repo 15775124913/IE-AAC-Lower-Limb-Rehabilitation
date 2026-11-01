@@ -616,6 +616,42 @@ metrics.min_keypoint_gap_s = min(diff(key_t));
 metrics.max_key_gap_limit_s = max_key_gap;
 metrics.min_key_spacing_limit_s = min_key_spacing;
 
+% ---------- 7.2 Reviewer 3 C6: 可复算的重建质量审计（只读诊断） ----------
+% 注意：该段仅分析已经确定的 q_rebuilt/t_rebuild；不更改关键点、
+% 五次重建、实际控制器参考轨迹或任何控制律。
+% 筛选容差针对 PCHIP 示教观测代理的全局 RMSE，而非峰值误差，
+% 潜在真值只用于离线仿真验证，不能参与关键点选择。
+c6 = struct();
+c6.version = 'R3C6_reconstruction_quality_v1';
+c6.eval_interval = 'first teaching cycle';
+c6.position_unit = 'deg';
+c6.time_unit = 's';
+c6.fit_reference = 'PCHIP-dense noisy/time-warped teaching position observations';
+c6.latent_reference = 'simulation-only latent unwarped position trajectory';
+c6.selection_uses_latent_truth = false;
+c6.fit = c6_position_error_summary(error_q_fit, t_rebuild);
+c6.latent = c6_position_error_summary(error_q, t_rebuild);
+c6.global_fit_rmse_tolerance_deg = eps_tol;
+c6.tolerance_type = 'global three-joint position RMSE vs teaching PCHIP target';
+c6.fit_global_rmse_pass = c6.fit.rmse_deg(1) <= eps_tol + 1e-12;
+c6.keypoint_count = numel(key_t);
+c6.keypoint_min = MinPoints;
+c6.keypoint_max = N_max;
+c6.keypoint_min_count_pass = numel(key_t) >= MinPoints;
+c6.keypoint_max_count_pass = numel(key_t) <= N_max;
+c6.keypoint_count_pass = c6.keypoint_min_count_pass && c6.keypoint_max_count_pass;
+c6.max_gap_s = max(diff(key_t));
+c6.max_gap_limit_s = max_key_gap;
+c6.max_gap_pass = c6.max_gap_s <= max_key_gap + 1e-12;
+c6.min_gap_s = min(diff(key_t));
+c6.min_spacing_limit_s = min_key_spacing;
+c6.min_spacing_pass = c6.min_gap_s >= min_key_spacing - 1e-12;
+c6.control_reference_grid_error_s = time_grid_error;
+c6.controller_reference_grid_pass = time_grid_error <= 1e-12;
+c6.all_checks_pass = c6.fit_global_rmse_pass && c6.keypoint_count_pass && ...
+    c6.max_gap_pass && c6.min_spacing_pass && c6.controller_reference_grid_pass;
+metrics.c6_reconstruction_quality = c6;
+
 % ---------- 8. 打印关键点 ----------
 if opts.Verbose
     fprintf('\n========== 示教数据处理：自适应关键点（单位：°，°/s，°/s²）==========\n');
@@ -632,8 +668,10 @@ if opts.Verbose
     fprintf('   (关键点间隔: '); fprintf('%.3f ',diff(key_t)); fprintf(')\n');
     fprintf('   (最大间隔 %.3f s / 限制 %.3f s；最小间隔 %.3f s)\n', ...
             max(diff(key_t)), max_key_gap, min(diff(key_t)));
-    fprintf('   (全局RMSE=%.4f°, MinPoints=%d, MaxPoints=%d, EpsTol=%.2f)\n',...
-            rmse_global, MinPoints, N_max, eps_tol);
+    fprintf('   (latent truth 全局RMSE=%.4f°, teaching target 拟合RMSE=%.4f°, EpsTol=%.2f°)\n', ...
+            rmse_global, rmse_fit_global, eps_tol);
+    fprintf('   (C6全局拟合RMSE容差: %s；容差不约束最大绝对误差)\n', ...
+            c6_pass_label(c6.fit_global_rmse_pass));
     fprintf('   (示教采样: %.1f Hz, %d points；控制采样: %.1f Hz, %d points/cycle)\n', ...
             1/dt_teach, NUM_TEACH_SAMPLES, 1/dt_ctrl, NUM_CTRL_SAMPLES);
 
@@ -737,9 +775,94 @@ if opts.SaveFlag
     writetable(T_key_fit, csvFile);
     fprintf('   ✅ 关键点拟合数据保存至: %s\n', csvFile);
 
+    % 10f. 审稿人 C6: 两类参考信号 × [全局, Hip, Knee, Ankle] 的定量表。
+    % 误差计算基于控制器实际参考轨迹首周期，所有统计以 deg 计。
+    ReferenceSignal = [repmat({'TeachingPCHIPTarget'},4,1); ...
+                       repmat({'LatentTruthOffline'},4,1)];
+    Joint = repmat({'AllJoints';'Hip';'Knee';'Ankle'},2,1);
+    RMSE_deg = [c6.fit.rmse_deg(:); c6.latent.rmse_deg(:)];
+    MAE_deg = [c6.fit.mae_deg(:); c6.latent.mae_deg(:)];
+    MaxAbsError_deg = [c6.fit.max_abs_deg(:); c6.latent.max_abs_deg(:)];
+    MaxAbsTime_s = [c6.fit.max_abs_time_s(:); c6.latent.max_abs_time_s(:)];
+    MaxAbsSampleIndex = [c6.fit.max_abs_sample_index(:); ...
+                         c6.latent.max_abs_sample_index(:)];
+    MaxAbsJoint = [c6.fit.max_abs_joint(:); c6.latent.max_abs_joint(:)];
+    NumSamples = [c6.fit.num_samples(:); c6.latent.num_samples(:)];
+    T_c6_quality = table(ReferenceSignal, Joint, RMSE_deg, MAE_deg, ...
+        MaxAbsError_deg, MaxAbsTime_s, MaxAbsSampleIndex, ...
+        MaxAbsJoint, NumSamples);
+    qualityFile = fullfile(saveDir, ['teaching_reconstruction_quality_' timestampStr '.csv']);
+    writetable(T_c6_quality, qualityFile);
+
+    % 10g. 单独存储验收条件。仅 fitting RMSE 使用 1° 容差；
+    % 不把最大绝对误差或离线 latent truth 误差错误地作为 1° 判定对象。
+    CheckName = {'FittingGlobalRMSE';'KeypointMinCount';'KeypointMaxCount'; ...
+                 'MaximumKeypointGap';'MinimumKeypointSpacing';'ControlGridIdentity'};
+    ObservedValue = [c6.fit.rmse_deg(1);c6.keypoint_count;c6.keypoint_count; ...
+                     c6.max_gap_s;c6.min_gap_s;c6.control_reference_grid_error_s];
+    Criterion = {'LE';'GE';'LE';'LE';'GE';'LE'};
+    Threshold = [eps_tol; MinPoints; N_max; max_key_gap; min_key_spacing; 1e-12];
+    Unit = {'deg';'states';'states';'s';'s';'s'};
+    Passed = [c6.fit_global_rmse_pass;c6.keypoint_min_count_pass; ...
+              c6.keypoint_max_count_pass;c6.max_gap_pass; ...
+              c6.min_spacing_pass;c6.controller_reference_grid_pass];
+    T_c6_checks = table(CheckName, ObservedValue, Criterion, Threshold, Unit, Passed);
+    checksFile = fullfile(saveDir, ['teaching_reconstruction_checks_' timestampStr '.csv']);
+    writetable(T_c6_checks, checksFile);
+
+    fprintf('   ✅ C6定量指标CSV: %s\n', qualityFile);
+    fprintf('   ✅ C6验收条件CSV: %s\n', checksFile);
+    fprintf(['   C6 target RMSE %.4f° (limit %.2f°, %s); latent RMSE %.4f°; ' ...
+             'target max %.4f° (NOT a tolerance bound); overall checks %s\n'], ...
+            c6.fit.rmse_deg(1), eps_tol, c6_pass_label(c6.fit_global_rmse_pass), ...
+            c6.latent.rmse_deg(1), c6.fit.max_abs_deg(1), ...
+            c6_pass_label(c6.all_checks_pass));
+
 end
 
 end % 主函数
+
+%% Reviewer 3 C6: 无副作用的角度误差汇总 (row 1 = pooled all-joint)
+function summary = c6_position_error_summary(err_deg, t_s)
+    assert(size(err_deg,2) == 3 && numel(t_s) == size(err_deg,1), ...
+        'C6 error input must be N-by-3 on the controller time grid');
+    t_s = t_s(:);
+    joint_names = {'Hip','Knee','Ankle'};
+    summary.rmse_deg = zeros(4,1);
+    summary.mae_deg = zeros(4,1);
+    summary.max_abs_deg = zeros(4,1);
+    summary.max_abs_time_s = zeros(4,1);
+    summary.max_abs_sample_index = zeros(4,1);
+    summary.max_abs_joint = cell(4,1);
+    summary.num_samples = zeros(4,1);
+    summary.rmse_deg(1) = sqrt(mean(err_deg(:).^2));
+    summary.mae_deg(1) = mean(abs(err_deg(:)));
+    [summary.max_abs_deg(1), pos] = max(abs(err_deg(:)));
+    [i_max, j_max] = ind2sub(size(err_deg), pos);
+    summary.max_abs_time_s(1) = t_s(i_max);
+    summary.max_abs_sample_index(1) = i_max;
+    summary.max_abs_joint{1} = joint_names{j_max};
+    summary.num_samples(1) = numel(err_deg);
+    for j=1:3
+        e = err_deg(:,j);
+        row = j+1;
+        summary.rmse_deg(row) = sqrt(mean(e.^2));
+        summary.mae_deg(row) = mean(abs(e));
+        [summary.max_abs_deg(row), i_max] = max(abs(e));
+        summary.max_abs_time_s(row) = t_s(i_max);
+        summary.max_abs_sample_index(row) = i_max;
+        summary.max_abs_joint{row} = joint_names{j};
+        summary.num_samples(row) = numel(e);
+    end
+end
+
+function label = c6_pass_label(tf)
+    if tf
+        label = 'PASS';
+    else
+        label = 'FAIL';
+    end
+end
 
 %% ================= 辅助函数：示教参数默认值 =================
 function cfg = teaching_defaults(params)
