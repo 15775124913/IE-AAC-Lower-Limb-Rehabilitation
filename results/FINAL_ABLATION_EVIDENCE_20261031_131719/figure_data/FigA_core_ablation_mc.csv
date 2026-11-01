@@ -1,0 +1,28 @@
+Metric,Joint,Variant,Mean,SD,N
+Tracking RMSE,Hip,Full Proposed,0.702532701730788,0.099090142524466,100
+Tracking RMSE,Hip,No Mismatch Compensation,0.809299579601491,0.122082281427165,100
+Tracking RMSE,Hip,Simplified Adaptation (B/K),1.45177635782085,0.179192243948717,100
+Tracking RMSE,Knee,Full Proposed,1.93736505955318,0.183156836797387,100
+Tracking RMSE,Knee,No Mismatch Compensation,1.3758622800607,0.108193053510986,100
+Tracking RMSE,Knee,Simplified Adaptation (B/K),2.40199128411683,0.189719408234838,100
+Tracking RMSE,Ankle,Full Proposed,0.74863423272914,0.091516760684191,100
+Tracking RMSE,Ankle,No Mismatch Compensation,2.66675221385155,0.269715797509786,100
+Tracking RMSE,Ankle,Simplified Adaptation (B/K),0.826620855489241,0.0993808132833318,100
+Jerk RMS,Hip,Full Proposed,93.6925521187466,6.09393357047743,100
+Jerk RMS,Hip,No Mismatch Compensation,92.5284055746443,5.44634647838465,100
+Jerk RMS,Hip,Simplified Adaptation (B/K),144.037845811113,33.4307115296,100
+Jerk RMS,Knee,Full Proposed,176.109758749517,35.9260180276183,100
+Jerk RMS,Knee,No Mismatch Compensation,155.40304522715,30.3621779330363,100
+Jerk RMS,Knee,Simplified Adaptation (B/K),322.128575789847,38.5378279254566,100
+Jerk RMS,Ankle,Full Proposed,122.42199733774,17.4606631505925,100
+Jerk RMS,Ankle,No Mismatch Compensation,164.897703962867,51.4521600899094,100
+Jerk RMS,Ankle,Simplified Adaptation (B/K),141.127061577054,19.2499838750842,100
+Raw interaction-residual RMS,Hip,Full Proposed,0.850933414850539,0.0814171180440073,100
+Raw interaction-residual RMS,Hip,No Mismatch Compensation,0.867780092611056,0.0756376759053491,100
+Raw interaction-residual RMS,Hip,Simplified Adaptation (B/K),1.16196799440237,0.127373755205047,100
+Raw interaction-residual RMS,Knee,Full Proposed,0.474185010134622,0.0571708226931772,100
+Raw interaction-residual RMS,Knee,No Mismatch Compensation,0.601353060959778,0.0470891627252372,100
+Raw interaction-residual RMS,Knee,Simplified Adaptation (B/K),0.405898317532172,0.0435823026754289,100
+Raw interaction-residual RMS,Ankle,Full Proposed,0.464248006856176,0.0483801503157803,100
+Raw interaction-residual RMS,Ankle,No Mismatch Compensation,1.43750609295458,0.148395599039453,100
+Raw interaction-residual RMS,Ankle,Simplified Adaptation (B/K),0.500082824015185,0.0513905055710938,100

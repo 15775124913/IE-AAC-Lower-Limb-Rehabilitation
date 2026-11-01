@@ -1,0 +1,2 @@
+NumTrials,SeverityLevels,Samples,DtSeconds,Sampling,Design
+100,[0 0.1 0.2],14001,0.01,"true coefficients drawn as estimate*(1+severity*U[-1,1]), 12 independent coefficients per run, common across variants",paired trial; ideal execution; 4 controllers Kmis=1 and Proposed Kmis=0

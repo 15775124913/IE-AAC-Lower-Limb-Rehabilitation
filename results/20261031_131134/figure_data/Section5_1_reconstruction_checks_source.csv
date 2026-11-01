@@ -1,0 +1,7 @@
+CheckName,ObservedValue,Criterion,Threshold,Unit,Passed
+FittingGlobalRMSE,0.637256375778274,LE,1,deg,1
+KeypointMinCount,9,GE,6,states,1
+KeypointMaxCount,9,LE,10,states,1
+MaximumKeypointGap,1.6,LE,2,s,1
+MinimumKeypointSpacing,0.85,GE,0.7,s,1
+ControlGridIdentity,0,LE,1e-12,s,1

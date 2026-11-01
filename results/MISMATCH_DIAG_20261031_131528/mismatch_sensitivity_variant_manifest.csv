@@ -1,0 +1,6 @@
+Variant,Key,K_mis,Adapt_B,Adapt_K,Adapt_G
+No Mismatch Compensation (Kmis=0),kmis_000,0,1,1,1
+Kmis=0.25,kmis_025,0.25,1,1,1
+Kmis=0.50,kmis_050,0.5,1,1,1
+Kmis=0.75,kmis_075,0.75,1,1,1
+Full Proposed (Kmis=1),kmis_100,1,1,1,1

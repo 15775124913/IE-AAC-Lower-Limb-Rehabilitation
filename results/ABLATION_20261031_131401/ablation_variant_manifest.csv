@@ -1,0 +1,4 @@
+Variant,Key,Kmis_Hip,Kmis_Knee,Kmis_Ankle,Adapt_B,Adapt_K,Adapt_G
+Full Proposed,full,1,1,1,1,1,1
+No Mismatch Compensation,no_mismatch,0,0,0,1,1,1
+Simplified Adaptation (B/K),simplified_bk,1,1,1,1,1,0

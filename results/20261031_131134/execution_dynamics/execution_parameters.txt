@@ -1,0 +1,10 @@
+Reference: main_simulation TeachingDataPipeline output; 14 cycles, common disturbances.
+Simulation only; not identified patient/robot dynamics or a stability proof.
+dt: 0.01
+inertia_diag: [3 2.2 0.65]
+viscous_damping: [1.2 0.9 0.3]
+kp: [125 110 38]
+kd: [29 25 10]
+torque_limit: [90 80 30]
+actuator_time_constant: 0.03
+velocity_sign_eps: 0.05

@@ -4,15 +4,40 @@ addpath(genpath(pwd));
 paper_figure_utils('defaults');
 
 %% ================= 0. 一键完整工作流配置 =================
-% 直接运行本文件依次完成：
-%   1) 四控制器 nominal + primary paired Monte Carlo
-%   2) Core ablation
-%   3) K_mis sensitivity
-%   4) Final ablation evidence aggregation
+% 唯一正式入口：运行 main_simulation 即按顺序执行全部已纳入工程的研究。
+% 完整论文级运行默认开启所有实验；各正式实验输出均保留在 results/ 中。
+RUN_MONTE_CARLO = true;
+MC_NUM_RUNS = 100;
+CLEAN_OLD_MC = false;              % 默认不删除历史结果
+
 RUN_ABLATION_WORKFLOW = true;
 ABLATION_NUM_RUNS = 100;
 MAKE_ABLATION_FIGURES = true;
 KMIS_GRID = [0 0.25 0.5 0.75 1];
+
+RUN_EXECUTION_VALIDATION = true;   % 六工况非理想执行层验证
+RUN_TRUE_ESTIMATED_MISMATCH = true; % Reviewer 3 C4：真/估参数失配
+MODEL_MISMATCH_NUM_RUNS = 100;
+MODEL_MISMATCH_SEVERITIES = [0 0.10 0.20];
+
+RUN_JOINT_SPECIFIC = true;         % Reviewer 3 C3：关节特异性标称参数
+JOINT_SPECIFIC_NUM_RUNS = 100;
+
+EXPORT_ADDITIONAL_PAPER_EVIDENCE = true; % Fig16、Table6/7、实验目录索引
+
+RUN_DEADZONE_SENSITIVITY = true;   % Reviewer 2 P11: soft dead-zone/noise paired study
+RUN_STABILITY_VALIDATION = true;   % R3-C5/R2-P10: read-only numerical evidence, no control-law change
+DEADZONE_SENSITIVITY_NUM_TRIALS = 100;
+
+% Fig16/Table6/7 的正式归档以完整的 100-trial 数据为前提。
+if EXPORT_ADDITIONAL_PAPER_EVIDENCE
+    assert(RUN_MONTE_CARLO && RUN_ABLATION_WORKFLOW && RUN_EXECUTION_VALIDATION && ...
+        RUN_TRUE_ESTIMATED_MISMATCH && RUN_JOINT_SPECIFIC, ...
+        '论文级统一归档要求所有正式实验开关均开启。');
+    assert(MC_NUM_RUNS == 100 && ABLATION_NUM_RUNS == 100 && ...
+        MODEL_MISMATCH_NUM_RUNS == 100 && JOINT_SPECIFIC_NUM_RUNS == 100, ...
+        '论文级统一归档要求各配对 Monte Carlo 实验均为 100 trials。');
+end
 
 %% ================= 1. 参数加载与初始化 =================
 params = parameters();
@@ -55,9 +80,9 @@ assert(max(abs(t_all(:) - metrics_teaching.t_controller_ref(:))) < 1e-14, ...
 fprintf('✅ 示教重建轨迹与四控制器实际参考轨迹严格一致。\n');
 
 %% ================= 4. Monte Carlo：四控制器严格配对 =================
-RUN_MONTE_CARLO = true;
-MC_NUM_RUNS = 100;
-CLEAN_OLD_MC = false;
+mc_result_dir = '';
+primary_mc_statistics = [];
+
 
 if RUN_MONTE_CARLO
     mc_root = 'results';
@@ -81,7 +106,14 @@ if RUN_MONTE_CARLO
 
     fprintf('=== 自动运行四控制器蒙特卡洛仿真（%d 组，共享 nominal reference）===\n', MC_NUM_RUNS);
     tic;
-    monte_carlo_runner(MC_NUM_RUNS, params, reference_bundle);
+    mc_result_dir = monte_carlo_runner(MC_NUM_RUNS, params, reference_bundle);
+    %% Primary paired inferential statistics (same completed MC dataset)
+    trial_files = dir(fullfile(mc_result_dir, 'MC_trial_level_four_controller_*.csv'));
+    assert(numel(trial_files)==1, 'Expected exactly one primary MC trial-level CSV.');
+    primary_mc_statistics = export_main_mc_pairwise( ...
+        fullfile(mc_result_dir, trial_files(1).name), ...
+        fullfile(mc_result_dir, 'paired_statistics'));
+    fprintf('Primary MC Holm-adjusted statistics: %s\n',primary_mc_statistics.JointCSV);
     elapsed_mc = toc;
     fprintf('=== 蒙特卡洛完成，耗时 %.1f 秒 ===\n\n', elapsed_mc);
 end
@@ -230,6 +262,21 @@ writetable(T_cao_audit, fullfile(nominal_result_dir, ...
 writetable(T_four_controller_limits, fullfile(nominal_result_dir, ...
     ['four_controller_motion_limit_audit_' char(params.config_date) '.csv']));
 
+%% ================= 12A. R3-C5 / R2-P10: nominal stability evidence =================
+% Read-only post-processing of the already computed Proposed trace.
+% Fixed-parameter Schur test is NOT an adaptive closed-loop stability proof.
+if RUN_STABILITY_VALIDATION
+    trace_stability = struct('t',t_all, ...
+        'Ba',Ba_adp,'Ka',Ka_adp,'Ga',Ga_adp, ...
+        'delta_q',delta_q_adp,'delta_dq',delta_dq_adp, ...
+        'delta_ddq',delta_ddq_adp,'e_used',e_fb_used_adp);
+    stability_evidence = run_stability_validation(params,trace_stability, ...
+        fullfile(nominal_result_dir,'stability_validation'));
+    fprintf('R3-C5/R2-P10 stability evidence: %s\n',stability_evidence.OutputDir);
+    % Archive stability table sources with the other manuscript figures/tables.
+    export_stability_paper_evidence(stability_evidence,nominal_result_dir);
+end
+
 %% ================= 13. 论文级图表 =================
 if RUN_MONTE_CARLO
     mc_path_for_figures = '';
@@ -284,3 +331,54 @@ if RUN_ABLATION_WORKFLOW
     end
     fprintf('============================================================\n');
 end
+
+%% ================= 15. 非理想执行层与论文图自动归档 =================
+% Uses the SAME nominal reference and common exogenous sequence as this run.
+% Execution layer is OFF for original nominal/MC/ablation experiments.
+if RUN_EXECUTION_VALIDATION
+    fprintf('\n=== Starting six-case nonideal execution-layer validation ===\n');
+    execution_evidence = run_execution_dynamics_validation( ...
+        params, q_teach, dq_teach, ddq_teach, t_all, char(params.config_date));
+    fprintf('Execution-layer figures and data: %s\n', execution_evidence.PaperFigureDir);
+end
+
+fprintf('\n=== Primary, ablation and execution experiments completed ===\n');
+
+%% ================= 16. 真/估计标称参数失配验证（Reviewer 3 C4） =================
+model_mismatch_result_dir = '';
+if RUN_TRUE_ESTIMATED_MISMATCH
+    fprintf('\n=== Starting true-vs-estimated interaction model experiment ===\n');
+    model_mismatch_result_dir = run_model_mismatch_validation( ...
+        MODEL_MISMATCH_NUM_RUNS, MODEL_MISMATCH_SEVERITIES);
+    fprintf('Model-mismatch evidence: %s\n', model_mismatch_result_dir);
+end
+
+%% ================= 17. 关节特异性标称参数验证（Reviewer 3 C3） =================
+joint_specific_result_dir = '';
+if RUN_JOINT_SPECIFIC
+    fprintf('\n=== Starting joint-specific nominal interaction experiment ===\n');
+    joint_specific_result_dir = run_joint_specific_validation(JOINT_SPECIFIC_NUM_RUNS);
+    fprintf('Joint-specific evidence: %s\n', joint_specific_result_dir);
+end
+
+%% ================= 18. 统一论文图表、表格源数据及实验目录索引 =================
+if EXPORT_ADDITIONAL_PAPER_EVIDENCE
+    assert(~isempty(model_mismatch_result_dir) && ~isempty(joint_specific_result_dir), ...
+        '统一论文证据归档需要先完成真/估失配和关节特异性两项实验。');
+    generate_validation_evidence(model_mismatch_result_dir, ...
+        joint_specific_result_dir, char(params.config_date), ...
+        mc_result_dir, nominal_result_dir, R_ablation);
+end
+
+%% ================= 19. Reviewer 2 P11：软死区与模拟反馈噪声敏感性 =================
+% Independent full 100-trial experiment; does NOT overwrite primary MC.
+% Reuses this run's common reference; appends P11 figure/data to paper archive.
+if RUN_DEADZONE_SENSITIVITY
+    fprintf('\n=== Starting R2 P11 soft-dead-zone/noise sensitivity ===\n');
+    p11_evidence = run_deadzone_sensitivity_validation( ...
+        params,q_teach,dq_teach,ddq_teach,t_all, ...
+        DEADZONE_SENSITIVITY_NUM_TRIALS,char(params.config_date));
+    fprintf('R2 P11 evidence: %s\n',p11_evidence.FigureDataDir);
+end
+
+fprintf('\n=== COMPLETE ONE-ENTRY WORKFLOW AND PAPER EVIDENCE FINISHED ===\n');

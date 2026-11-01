@@ -1,0 +1,2 @@
+RunTimestamp,Trials,TrialRows,SummaryRows,PairedContrastRows,TrialCSV,PaperFigureDir,FigureDataDir
+20261031_131134,100,4800,432,144,results\20261031_131134\figure_data\P11_deadzone_noise_trial_data.csv,results\20261031_131134\paper_figures,results\20261031_131134\figure_data

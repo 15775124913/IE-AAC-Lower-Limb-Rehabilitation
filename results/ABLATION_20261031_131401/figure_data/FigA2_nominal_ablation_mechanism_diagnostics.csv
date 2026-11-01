@@ -1,0 +1,19 @@
+Diagnostic,Joint,Variant,Value
+Mismatch Leakage RMS,Hip,Full Proposed,1.06481014645651e-15
+Mismatch Leakage RMS,Knee,Full Proposed,5.62243766898468e-16
+Mismatch Leakage RMS,Ankle,Full Proposed,2.04776332323135e-16
+Mismatch Leakage RMS,Hip,No Mismatch Compensation,0.318248110748309
+Mismatch Leakage RMS,Knee,No Mismatch Compensation,0.352104856842459
+Mismatch Leakage RMS,Ankle,No Mismatch Compensation,1.29912177923082
+Mismatch Leakage RMS,Hip,Simplified Adaptation (B/K),1.11281271366804e-15
+Mismatch Leakage RMS,Knee,Simplified Adaptation (B/K),5.57351782912901e-16
+Mismatch Leakage RMS,Ankle,Simplified Adaptation (B/K),2.07705071445796e-16
+Processed Controller-Input RMS,Hip,Full Proposed,0.539985934356335
+Processed Controller-Input RMS,Knee,Full Proposed,0.872782783216938
+Processed Controller-Input RMS,Ankle,Full Proposed,0.170308716218773
+Processed Controller-Input RMS,Hip,No Mismatch Compensation,0.824620426572891
+Processed Controller-Input RMS,Knee,No Mismatch Compensation,0.569236124229742
+Processed Controller-Input RMS,Ankle,No Mismatch Compensation,1.42968899172877
+Processed Controller-Input RMS,Hip,Simplified Adaptation (B/K),0.557049156036605
+Processed Controller-Input RMS,Knee,Simplified Adaptation (B/K),0.874225241820947
+Processed Controller-Input RMS,Ankle,Simplified Adaptation (B/K),0.169612994251348

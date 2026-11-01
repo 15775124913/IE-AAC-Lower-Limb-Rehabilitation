@@ -1,0 +1,25 @@
+SeverityPct,Controller,Joint,Metric,N,Mean,SD
+0,Proposed (Kmis=1),ThreeJointMean,ReferenceRMSEDeg,100,1.12951066467104,0.0788947708378446
+0,Proposed (Kmis=1),ThreeJointMean,JerkRMSRadPerS3,100,2.28186852818393,0.248835750270214
+0,Proposed (Kmis=1),ThreeJointMean,RawResidualRMSNm,100,0.596455477280445,0.041185969373233
+0,Proposed (Kmis=1),ThreeJointMean,CompensatedContaminationRMSNm,100,0,0
+0,Proposed (Kmis=0),ThreeJointMean,ReferenceRMSEDeg,100,1.61730469117125,0.104639611073732
+0,Proposed (Kmis=0),ThreeJointMean,JerkRMSRadPerS3,100,2.40174266628953,0.365942175183229
+0,Proposed (Kmis=0),ThreeJointMean,RawResidualRMSNm,100,0.968879748841803,0.0608183708514064
+0,Proposed (Kmis=0),ThreeJointMean,CompensatedContaminationRMSNm,100,0.645727405073722,0.0517316938306769
+10,Proposed (Kmis=1),ThreeJointMean,ReferenceRMSEDeg,100,1.10948843398723,0.171781064867281
+10,Proposed (Kmis=1),ThreeJointMean,JerkRMSRadPerS3,100,2.24220664151898,0.287279678649977
+10,Proposed (Kmis=1),ThreeJointMean,RawResidualRMSNm,100,0.581047078259506,0.135375712479518
+10,Proposed (Kmis=1),ThreeJointMean,CompensatedContaminationRMSNm,100,0.221431427555112,0.0850160035818771
+10,Proposed (Kmis=0),ThreeJointMean,ReferenceRMSEDeg,100,1.58119144948553,0.142456624881702
+10,Proposed (Kmis=0),ThreeJointMean,JerkRMSRadPerS3,100,2.40566984758956,0.35524568349823
+10,Proposed (Kmis=0),ThreeJointMean,RawResidualRMSNm,100,0.927537456192343,0.129479091778574
+10,Proposed (Kmis=0),ThreeJointMean,CompensatedContaminationRMSNm,100,0.706028962763508,0.106676873542589
+20,Proposed (Kmis=1),ThreeJointMean,ReferenceRMSEDeg,100,1.1745669684099,0.266409611669406
+20,Proposed (Kmis=1),ThreeJointMean,JerkRMSRadPerS3,100,2.16391639998191,0.303561958673072
+20,Proposed (Kmis=1),ThreeJointMean,RawResidualRMSNm,100,0.725277957706177,0.218649786492844
+20,Proposed (Kmis=1),ThreeJointMean,CompensatedContaminationRMSNm,100,0.44278471204233,0.170550471378248
+20,Proposed (Kmis=0),ThreeJointMean,ReferenceRMSEDeg,100,1.62656123287504,0.204341026199615
+20,Proposed (Kmis=0),ThreeJointMean,JerkRMSRadPerS3,100,2.43476668627787,0.398003324847603
+20,Proposed (Kmis=0),ThreeJointMean,RawResidualRMSNm,100,1.0275893969544,0.21439218679785
+20,Proposed (Kmis=0),ThreeJointMean,CompensatedContaminationRMSNm,100,0.881833302472839,0.204150409220339

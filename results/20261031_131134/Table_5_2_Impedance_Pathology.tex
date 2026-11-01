@@ -1,0 +1,24 @@
+% 自动生成 - 请勿手动修改
+\begin{table}[htbp]
+\centering
+\caption{正常生理阻抗与异常病理扰动模型参数}
+\begin{tabular}{lllp{4cm}}
+\toprule
+参数类别 & 物理符号 & 描述说明 & 设定数值 \\
+\midrule
+正常基线 & $B_{0,j}$ & 关节固有基线摩擦力矩 & 0.5 Nm \\
+ & $K_{q,j}$ / $K_{v,j}$ & 角度刚度增益 / 速度黏滞增益 & 2.0 / 1.2 \\
+ & $K_{e,j}$ & 末端保护刚度增益 & 50.0 Nm/rad \\
+痉挛特征 & $q_{\mathrm{hip,th}}$ / $q_{\mathrm{knee,th}}$ & 痉挛角度阈值 & 0.8 rad / 0.5 rad \\
+ & $c_1$ / $c_2$ / $c_3$ & 痉挛等效阻尼增益 & 350.0 / 450.0 / 1.0 \\
+异常协同 & $C_{\mathrm{syn}}$ & 跨关节耦合系数 & [0.2, 0.4, 0.1] \\
+疲劳 & $c_{\mathrm{fatigue}}$ & 最大疲劳阻力 & 10.0 Nm \\
+噪声 & $\sigma_N$ & 反馈高斯噪声水平 & 0.02 \\
+ &  &  &  \\
+ &  &  &  \\
+ &  &  &  \\
+ &  &  &  \\
+ &  &  &  \\
+\bottomrule
+\end{tabular}
+\end{table}

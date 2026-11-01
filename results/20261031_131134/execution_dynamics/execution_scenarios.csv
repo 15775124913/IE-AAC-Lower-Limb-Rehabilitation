@@ -1,0 +1,7 @@
+name,enable,delay_samples,coupling_fraction
+IdealCommandBaseline,0,0,0
+Servo0msNoCoupling,1,0,0
+Servo0msCoupling012,1,0,0.12
+Servo20msCoupling012,1,2,0.12
+Servo50msCoupling012,1,5,0.12
+Servo50msCoupling020,1,5,0.2

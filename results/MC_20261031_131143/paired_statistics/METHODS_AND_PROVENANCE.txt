@@ -1,0 +1,9 @@
+Dataset: primary MC, expected 100 paired runs.
+Input file: results\MC_20261031_131143\MC_trial_level_four_controller_20261031_131143.csv
+Unit of analysis: matched Monte Carlo trial.
+Direction: comparator minus Proposed, positive = Proposed lower.
+Inference: two-sided paired t test, t-based 95% CI, Cohens dz.
+Holm multiplicity: 27 comparisons per-joint; 9 three-joint comparisons in a separate family.
+Joint mean: first arithmetic mean across Hip/Knee/Ankle within each run, then paired inference across trials.
+ImprovementPct_RatioOfMeans: 100 * (mean comparator - mean proposed)/mean comparator.
+No inference on execution-layer stability or physical patient validity is implied.

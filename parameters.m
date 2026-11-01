@@ -29,6 +29,22 @@ function params = parameters()
     params.jerk_limit      = [20.0 20.0 15.0]; % 导纳修正加速度变化率上限 (rad/s³)
     params.motion_limit_saturation_ratio = 0.999; % 认为触及共享运动限幅的归一化阈值；用于诊断，不参与控制
     
+    % ================ OPTIONAL nonideal inner execution study ================
+    % OFF in all original paper experiments. Enabled explicitly in
+    % run_execution_dynamics_validation.m. These are engineering stress-test
+    % values, not measured/identified properties of a physical system.
+    params.execution_dynamics = struct();
+    params.execution_dynamics.enabled = false;
+    params.execution_dynamics.inertia_diag = [3.0 2.2 0.65];  % kg m^2
+    params.execution_dynamics.coupling_fraction = 0.12;       % dimensionless
+    params.execution_dynamics.viscous_damping = [1.2 0.9 0.3]; % Nm s/rad
+    params.execution_dynamics.kp = [125 110 38];             % Nm/rad
+    params.execution_dynamics.kd = [29 25 10];               % Nm s/rad
+    params.execution_dynamics.torque_limit = [90 80 30];    % Nm
+    params.execution_dynamics.actuator_time_constant = 0.03; % s
+    params.execution_dynamics.delay_samples = 2;           % 2*dt = 20 ms
+    params.execution_dynamics.velocity_sign_eps = 0.05;     % rad/s
+
     % ================ 正常生理阻抗 (表5.2) ========================
     params.B0     = [0.5  0.5  0.5];         % 关节固有基线摩擦力矩 (Nm)
     params.Kq_fb  = [2.0  2.0  2.0];         % 角度刚度增益

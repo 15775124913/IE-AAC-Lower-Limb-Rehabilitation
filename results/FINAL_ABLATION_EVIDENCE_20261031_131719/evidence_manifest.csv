@@ -1,0 +1,9 @@
+Item,Value
+AblationSource,results\ABLATION_20261031_131401
+MismatchSource,results\MISMATCH_DIAG_20261031_131528
+SuccessfulPairedTrials,100
+ExpectedTrials,100
+PrimaryMetricDirection,Lower is better
+DifferenceConvention,Comparator minus Full; positive means Full has lower metric
+MultiplicityCorrection,Holm across 18 core endpoint tests
+MismatchSensitivityPurpose,Mechanism/sensitivity only; no K_mis retuning

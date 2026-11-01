@@ -1,0 +1,4 @@
+Joint,M,B_lower,B_upper,K_lower,K_upper,G_lower,G_upper,Minimum_r,Minimum_s,Minimum_4minus2rminuss,MaxSpectralRadius_4Corners,FrozenParameterBoxSchurPASS
+Hip,2,1,40,0.5,250,0.16,5,0.005,2.5e-05,3.5875,0.999874937429589,1
+Knee,2,1,40,0.4,200,0.16,5,0.005,2e-05,3.59,0.99989995996396,1
+Ankle,1.5,0.6,24,0.3,150,0.2,6.25,0.004,2e-05,3.67,0.99987491785062,1

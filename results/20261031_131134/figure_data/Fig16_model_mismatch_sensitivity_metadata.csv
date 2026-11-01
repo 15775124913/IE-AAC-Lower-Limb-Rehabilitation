@@ -1,0 +1,2 @@
+ManuscriptItem,SourceFolder,Design,Statistic,ScopeLimit
+Figure 16,results\MODEL_MISMATCH_20261031_131757,100 paired Monte Carlo trials,"Mean of three joint RMSE values within trial, then mean and SD across trials",0/10/20% denote simulated true-model coefficient uncertainty severity

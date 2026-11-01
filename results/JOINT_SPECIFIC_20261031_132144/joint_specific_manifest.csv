@@ -1,0 +1,2 @@
+NumTrials,Samples,DtSeconds,Seed,Design,Pairing
+100,14001,0.01,42,hip-knee-ankle coefficients explicitly different; exact joint-specific estimate and truth,same MC seeds as Node0; ideal execution; 4 controllers; same exogenous disturbances

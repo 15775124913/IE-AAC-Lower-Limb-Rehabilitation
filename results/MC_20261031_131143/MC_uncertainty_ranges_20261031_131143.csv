@@ -1,0 +1,12 @@
+Group,Parameter,Distribution,Range,Status,Rationale
+Admittance,Ma0/Ba0/Ka0/Ga0,bounded uniform,nominal ± 10%,Perturbed,Shared nominal admittance parameters
+Literature baseline,Zhang2018 a1/a2/a3/b1/b2/b3,fixed after nominal audit,0%,Not perturbed,Zhang scheduling coefficients frozen before Monte Carlo
+Literature baseline,Cao2024 zeta_B/zeta_K/eta_B/eta_K,fixed after structural + nominal audit,0%,Not perturbed,Cao-derived effective momentum gains frozen before Monte Carlo
+Normal feedback,Kq_fb/Kv_fb/Ke_fb,bounded uniform,nominal ± 10%,Perturbed,Active interaction-feedback parameters
+Pathology,spasm thresholds,bounded uniform,nominal ± 10%,Perturbed,Active spasticity gates
+Pathology,spasm gains/Csyn/cfatigue/event_amp/fatigue_slope,bounded uniform,nominal ± 15%,Perturbed,Active pathological disturbance parameters
+Noise,feedback_noise_level,bounded uniform,nominal ± 20%,Perturbed,Active feedback noise amplitude
+Event timing,event_time_offset,bounded uniform,± 0.100 s,Perturbed,Moves event centers and event metric windows together
+Quiet zone,quiet_dq_th/quiet_ddq_th,bounded uniform,nominal ± 10%,Perturbed,Shared quiet-zone supervisor thresholds
+Excluded,model.L1/L2,fixed nominal,0%,Not perturbed,Link lengths do not enter current joint-space MC metrics
+Excluded,B0,fixed nominal,0%,Not perturbed,Constant baseline term cancels in current feedback-error construction

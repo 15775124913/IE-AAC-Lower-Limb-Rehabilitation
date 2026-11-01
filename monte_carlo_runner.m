@@ -1,4 +1,4 @@
-function monte_carlo_runner(num_runs, base_params, reference_bundle)
+function mc_folder = monte_carlo_runner(num_runs, base_params, reference_bundle)
 %MONTE_CARLO_RUNNER Four-controller strictly paired Monte Carlo workflow.
 % Controllers:
 %   Fixed | Zhang-2018 literature-derived VA | Cao-2024-derived VA | Proposed IE-AAC
